@@ -1,0 +1,476 @@
+{
+  "builtTestProducts" : [
+
+  ],
+  "copyCommands" : {
+    "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow_BackupFlow.bundle/Assets.xcassets" : {
+      "inputs" : [
+        {
+          "kind" : "directory",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Resources/Assets.xcassets"
+        }
+      ],
+      "outputs" : [
+        {
+          "kind" : "directory",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow_BackupFlow.bundle/Assets.xcassets"
+        }
+      ]
+    }
+  },
+  "explicitTargetDependencyImportCheckingMode" : {
+    "none" : {
+
+    }
+  },
+  "generatedSourceTargetSet" : [
+
+  ],
+  "pluginDescriptions" : [
+
+  ],
+  "swiftCommands" : {
+    "C.BackupFlow-arm64-apple-macosx26.0-debug.module" : {
+      "executable" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "fileList" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/sources",
+      "importPath" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/BackupFlowApp.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/ContentView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Models/BackupTask.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Services/BookmarkManager.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Services/SyncEngine.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/ViewModels/BackupViewModel.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Views/DriveHeaderView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Views/LogConsoleView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Views/ScheduleSettingsView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Views/TaskListView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/DerivedSources/resource_bundle_accessor.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+        },
+        {
+          "kind" : "virtual",
+          "name" : "<BackupFlow-arm64-apple-macosx26.0-debug.module-resources>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/sources"
+        }
+      ],
+      "isLibrary" : false,
+      "moduleName" : "BackupFlow",
+      "moduleOutputPath" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/Modules/BackupFlow.swiftmodule",
+      "objects" : [
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/BackupFlowApp.swift.o",
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/ContentView.swift.o",
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/BackupTask.swift.o",
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/BookmarkManager.swift.o",
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/SyncEngine.swift.o",
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/BackupViewModel.swift.o",
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/DriveHeaderView.swift.o",
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/LogConsoleView.swift.o",
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/ScheduleSettingsView.swift.o",
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/TaskListView.swift.o",
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/resource_bundle_accessor.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx15.0",
+        "-incremental",
+        "-enable-batch-mode",
+        "-serialize-diagnostics",
+        "-index-store-path",
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-j8",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_AVAILABLE",
+        "-module-cache-path",
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/ModuleCache",
+        "-parseable-output",
+        "-Xfrontend",
+        "-entry-point-function-name",
+        "-Xfrontend",
+        "BackupFlow_main",
+        "-color-diagnostics",
+        "-swift-version",
+        "6",
+        "-plugin-path",
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk",
+        "-F",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-F",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks",
+        "-I",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-L",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-g",
+        "-Xfrontend",
+        "-warn-concurrency",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk",
+        "-Xcc",
+        "-F",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-Xcc",
+        "-F",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "metallic_oort"
+      ],
+      "outputFileMapPath" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/BackupFlowApp.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/ContentView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/BackupTask.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/BookmarkManager.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/SyncEngine.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/BackupViewModel.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/DriveHeaderView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/LogConsoleView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/ScheduleSettingsView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/TaskListView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/resource_bundle_accessor.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/Modules/BackupFlow.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/BackupFlowApp.swift",
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/ContentView.swift",
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Models/BackupTask.swift",
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Services/BookmarkManager.swift",
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Services/SyncEngine.swift",
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/ViewModels/BackupViewModel.swift",
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Views/DriveHeaderView.swift",
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Views/LogConsoleView.swift",
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Views/ScheduleSettingsView.swift",
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Views/TaskListView.swift",
+        "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/DerivedSources/resource_bundle_accessor.swift"
+      ],
+      "tempsPath" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build",
+      "wholeModuleOptimization" : false
+    }
+  },
+  "swiftFrontendCommands" : {
+
+  },
+  "swiftTargetScanArgs" : {
+    "BackupFlow" : [
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "-module-name",
+      "BackupFlow",
+      "-package-name",
+      "metallic_oort",
+      "-c",
+      "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/BackupFlowApp.swift",
+      "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/ContentView.swift",
+      "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Models/BackupTask.swift",
+      "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Services/BookmarkManager.swift",
+      "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Services/SyncEngine.swift",
+      "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/ViewModels/BackupViewModel.swift",
+      "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Views/DriveHeaderView.swift",
+      "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Views/LogConsoleView.swift",
+      "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Views/ScheduleSettingsView.swift",
+      "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Views/TaskListView.swift",
+      "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/DerivedSources/resource_bundle_accessor.swift",
+      "-I",
+      "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/Modules",
+      "-target",
+      "arm64-apple-macosx15.0",
+      "-incremental",
+      "-enable-batch-mode",
+      "-serialize-diagnostics",
+      "-index-store-path",
+      "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-j8",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_AVAILABLE",
+      "-module-cache-path",
+      "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/ModuleCache",
+      "-parseable-output",
+      "-Xfrontend",
+      "-entry-point-function-name",
+      "-Xfrontend",
+      "BackupFlow_main",
+      "-color-diagnostics",
+      "-swift-version",
+      "6",
+      "-plugin-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk",
+      "-F",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-F",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks",
+      "-I",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-L",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-g",
+      "-Xfrontend",
+      "-warn-concurrency",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk",
+      "-Xcc",
+      "-F",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-Xcc",
+      "-F",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "metallic_oort",
+      "-driver-use-frontend-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+    ]
+  },
+  "targetDependencyMap" : {
+    "BackupFlow" : [
+
+    ]
+  },
+  "testDiscoveryCommands" : {
+
+  },
+  "testEntryPointCommands" : {
+
+  },
+  "traitConfiguration" : {
+    "default" : {
+
+    }
+  },
+  "writeCommands" : {
+    "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow-entitlement.plist" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<entitlement-plist>"
+        },
+        {
+          "kind" : "virtual",
+          "name" : "<com.apple.security.get-task-allow>"
+        }
+      ],
+      "outputFilePath" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow-entitlement.plist"
+    },
+    "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/BackupFlowApp.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/ContentView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Models/BackupTask.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Services/BookmarkManager.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Services/SyncEngine.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/ViewModels/BackupViewModel.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Views/DriveHeaderView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Views/LogConsoleView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Views/ScheduleSettingsView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/Sources/BackupFlow/Views/TaskListView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/DerivedSources/resource_bundle_accessor.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/sources"
+    },
+    "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.product/Objects.LinkFileList" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<link-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/BackupFlowApp.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/BackupTask.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/BackupViewModel.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/BookmarkManager.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/ContentView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/DriveHeaderView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/LogConsoleView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/ScheduleSettingsView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/SyncEngine.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/TaskListView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.build/resource_bundle_accessor.swift.o"
+        }
+      ],
+      "outputFilePath" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/BackupFlow.product/Objects.LinkFileList"
+    },
+    "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt" : {
+      "alwaysOutOfDate" : true,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<swift-get-version>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+        }
+      ],
+      "outputFilePath" : "/Users/antonborodin/.gemini/antigravity/playground/metallic-oort/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+    }
+  }
+}

@@ -1,0 +1,571 @@
+import Foundation
+import AppKit
+
+@MainActor
+final class BackupViewModel: ObservableObject {
+
+    // MARK: - Published State
+
+    @Published var mainDriveURL: URL?
+    @Published var secondaryDriveURL: URL?
+    @Published var syncEntireDrive: Bool = false
+    @Published var tasks: [BackupTask] = []
+    @Published var selectedTaskIDs: Set<UUID> = []
+    @Published var logOutput: String = ""
+    @Published var isLogExpanded: Bool = false
+    @Published var isSyncing: Bool = false
+    @Published var showAbortConfirm: Bool = false
+    @Published var isMuted: Bool = false
+
+    // Global Progress State
+    @Published var globalProgress: Double = 0.0
+    @Published var currentTaskIndex: Int = 0
+    @Published var totalTasksCount: Int = 0
+
+    // MARK: - Private
+
+    private let engine = SyncEngine()
+    private var scheduleTimer: Timer?
+
+    private enum SchKeys {
+        static let enabled  = "bf.scheduleEnabled"
+        static let interval = "bf.scheduleInterval"  // stored in hours (Int); 0 means off
+    }
+
+    private enum Keys {
+        static let mainBookmark      = "bf.mainBookmark"
+        static let secondaryBookmark = "bf.secondaryBookmark"
+        static let syncMode          = "bf.syncEntireDrive"
+        static let tasks             = "bf.tasks"
+        static let isMuted           = "bf.isMuted"
+    }
+
+    // Pre-loaded sounds — prevents audio engine overload on rapid calls
+    private static let successSound: NSSound? = NSSound(named: "Glass")
+    private static let failureSound: NSSound? = NSSound(named: "Basso")
+
+    // MARK: - Init
+
+    init() {
+        restoreState()
+        checkDiskAvailability()     // clear ghost paths that are no longer reachable
+        setupScheduler()            // start background sync timer if schedule was configured
+        setupVolumeMonitor()        // listen for disk eject/unmount events
+    }
+
+    // MARK: - Computed
+
+    var statusText: String {
+        if isSyncing {
+            let pct = Int(globalProgress * 100)
+            if totalTasksCount > 1 {
+                return "Syncing \(currentTaskIndex) of \(totalTasksCount) (\(pct)%)"
+            } else {
+                return "Syncing (\(pct)%)"
+            }
+        }
+        if mainDriveURL == nil || secondaryDriveURL == nil { return "Not configured" }
+        let failed = tasks.filter { $0.status == .failed }.count
+        if failed > 0 { return "\(failed) task(s) failed" }
+        let done = tasks.filter { $0.status == .success }.count
+        if done > 0 { return "Last sync OK" }
+        return "Idle"
+    }
+
+    // MARK: - Drive Selection
+
+    func selectMainDrive() {
+        guard let url = pickVolume(message: "Select the Main Disk") else { return }
+        mainDriveURL = url
+        if let data = BookmarkManager.createBookmark(for: url) {
+            UserDefaults.standard.set(data, forKey: Keys.mainBookmark)
+        }
+        if syncEntireDrive { refreshFullDiskTasks() }
+    }
+
+    func selectSecondaryDrive() {
+        guard let url = pickVolume(message: "Select the Backup Disk") else { return }
+        secondaryDriveURL = url
+        if let data = BookmarkManager.createBookmark(for: url) {
+            UserDefaults.standard.set(data, forKey: Keys.secondaryBookmark)
+        }
+        if syncEntireDrive { refreshFullDiskTasks() }
+    }
+
+    // MARK: - Task Management
+
+    func addFolder() {
+        guard let mainURL = mainDriveURL else {
+            log("⚠️ Select a Main drive first.\n"); return
+        }
+        guard let url = pickFolder(message: "Select a folder to back up", startingAt: mainURL) else { return }
+
+        if url.path == mainURL.path {
+            log("⚠️ Cannot add the entire disk root in Custom Folders mode. Use Full Disk Sync instead.\n")
+            return
+        }
+
+        let mainPath   = mainURL.path
+        let folderPath = url.path
+        let relative   = folderPath.hasPrefix(mainPath)
+            ? String(folderPath.dropFirst(mainPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            : url.lastPathComponent
+
+        let task = BackupTask(
+            folderName:   url.lastPathComponent,
+            relativePath: relative,
+            bookmarkData: BookmarkManager.createBookmark(for: url)
+        )
+        tasks.append(task)
+        saveTasks()
+    }
+
+    func removeSelectedTasks() {
+        tasks.removeAll { selectedTaskIDs.contains($0.id) }
+        selectedTaskIDs = []
+        saveTasks()
+    }
+
+    // MARK: - Volume Check
+
+    private func isVolumeMounted(_ url: URL) -> Bool {
+        // Try with security scope first, then without (for non-sandboxed / already-scoped URLs)
+        let didStart = url.startAccessingSecurityScopedResource()
+        let reachable = (try? url.checkResourceIsReachable()) == true
+        if didStart { url.stopAccessingSecurityScopedResource() }
+        return reachable
+    }
+
+    // MARK: - Sync
+
+    func syncAll() {
+        guard let mainURL = mainDriveURL, let secondaryURL = secondaryDriveURL else {
+            log("⚠️ Select both drives before syncing.\n"); return
+        }
+        guard !isSyncing else { return }
+
+        if !isVolumeMounted(mainURL) || !isVolumeMounted(secondaryURL) {
+            log("🛑 Disk Disconnected. Ensure both disks are mounted.\n")
+            playSound(.failure)
+            return
+        }
+
+        isSyncing = true
+        log("═══ Backup Flow  \(Date().formatted()) ═══\n")
+
+        Task {
+            await performSync(mainURL: mainURL, secondaryURL: secondaryURL)
+            self.isSyncing = false
+        }
+    }
+
+    private func performSync(mainURL: URL, secondaryURL: URL) async {
+        if syncEntireDrive {
+            await syncEntireDriveTo(main: mainURL, secondary: secondaryURL)
+        } else {
+            await syncSelectedFolders(main: mainURL, secondary: secondaryURL)
+        }
+    }
+
+    private func syncEntireDriveTo(main mURL: URL, secondary sURL: URL) async {
+        log("▶ Full drive sync: \(mURL.path) → \(sURL.path)\n")
+
+        var anyFailure = false
+        let snapshot = tasks
+        
+        // We add +1 to totalTasksCount for the final root directory sweep
+        totalTasksCount = snapshot.count + 1
+        globalProgress = 0.0
+
+        // 1. Sync each top-level folder to get granular UI progress
+        for (i, task) in snapshot.enumerated() {
+            currentTaskIndex = i + 1
+            setStatus(task.id, .syncing)
+            log("\n▶ [\(i + 1)/\(totalTasksCount)] '\(task.folderName)'\n")
+
+            let mStarted = mURL.startAccessingSecurityScopedResource()
+            let sStarted = sURL.startAccessingSecurityScopedResource()
+
+            let ok = await engine.syncFolder(
+                relativePath: task.relativePath,
+                mainRoot:     mURL,
+                secondaryRoot: sURL
+            ) { [weak self] text in
+                Task { @MainActor [weak self] in self?.log(text) }
+            } onProgress: { [weak self, id = task.id] p in
+                Task { @MainActor [weak self] in self?.updateTaskProgress(id, progress: p) }
+            }
+
+            if sStarted { sURL.stopAccessingSecurityScopedResource() }
+            if mStarted { mURL.stopAccessingSecurityScopedResource() }
+
+            if ok {
+                let absPath = mURL.appendingPathComponent(task.relativePath).path
+                SyncHistoryManager.shared.record(absolutePath: absPath)
+            }
+
+            setStatus(task.id, ok ? .success : .failed, date: ok ? Date() : nil)
+            log(ok ? "  ✅ Done.\n" : "  ❌ Failed.\n")
+            if !ok { anyFailure = true }
+        }
+
+        // 2. Final sweep (catches files in the root directory like .pdf, .dmg)
+        currentTaskIndex = totalTasksCount
+        log("\n▶ [\(totalTasksCount)/\(totalTasksCount)] Sweeping root files...\n")
+        
+        let mStarted = mURL.startAccessingSecurityScopedResource()
+        let sStarted = sURL.startAccessingSecurityScopedResource()
+
+        let sweepOk = await engine.syncEntireDrive(from: mURL, to: sURL) { [weak self] text in
+            Task { @MainActor [weak self] in self?.log(text) }
+        } onProgress: { [weak self] p in
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                let base = Double(max(0, self.totalTasksCount - 1)) / Double(self.totalTasksCount)
+                let current = p / Double(self.totalTasksCount)
+                self.globalProgress = min(1.0, base + current)
+            }
+        }
+        
+        if sStarted { sURL.stopAccessingSecurityScopedResource() }
+        if mStarted { mURL.stopAccessingSecurityScopedResource() }
+
+        if sweepOk { SyncHistoryManager.shared.record(absolutePath: mURL.path) }
+        
+        globalProgress = 1.0
+        log(sweepOk && !anyFailure ? "\n✅ Full drive sync complete.\n" : "\n❌ Sync finished with warnings.\n")
+        playSound(sweepOk && !anyFailure ? .success : .failure)
+    }
+
+    private func syncSelectedFolders(main mURL: URL, secondary sURL: URL) async {
+        var anyFailure = false
+        // Take a snapshot of tasks on MainActor before entering the loop
+        let snapshot = tasks
+
+        totalTasksCount = snapshot.count
+        globalProgress = 0.0
+
+        for (i, task) in snapshot.enumerated() {
+            currentTaskIndex = i + 1
+            setStatus(task.id, .syncing)
+            log("\n▶ [\(i + 1)/\(snapshot.count)] '\(task.folderName)' (\(task.relativePath))\n")
+
+            // Open scopes — keep alive for entire rsync call
+            let mStarted = mURL.startAccessingSecurityScopedResource()
+            let sStarted = sURL.startAccessingSecurityScopedResource()
+
+            // Also resolve the folder's own bookmark for maximum sandbox compatibility
+            var folderScopeURL: URL? = nil
+            if let bookmark = task.bookmarkData,
+               let resolved = BookmarkManager.resolveBookmark(bookmark) {
+                let started = resolved.startAccessingSecurityScopedResource()
+                if started { folderScopeURL = resolved }
+            }
+
+            let ok = await engine.syncFolder(
+                relativePath: task.relativePath,
+                mainRoot:     mURL,
+                secondaryRoot: sURL
+            ) { [weak self] text in
+                Task { @MainActor [weak self] in self?.log(text) }
+            } onProgress: { [weak self, id = task.id] p in
+                Task { @MainActor [weak self] in self?.updateTaskProgress(id, progress: p) }
+            }
+
+            // Release in reverse order
+            folderScopeURL?.stopAccessingSecurityScopedResource()
+            if sStarted { sURL.stopAccessingSecurityScopedResource() }
+            if mStarted { mURL.stopAccessingSecurityScopedResource() }
+
+            // Record sync date by absolute path (cross-mode persistence)
+            if ok {
+                let absPath = mURL.appendingPathComponent(task.relativePath).path
+                SyncHistoryManager.shared.record(absolutePath: absPath)
+            }
+
+            setStatus(task.id, ok ? .success : .failed, date: ok ? Date() : nil)
+            log(ok ? "  ✅ Done.\n" : "  ❌ Failed.\n")
+            if !ok { anyFailure = true }
+        }
+
+        saveTasks()
+        playSound(anyFailure ? .failure : .success)
+    }
+
+    func abortSync() {
+        Task {
+            await engine.abort()
+            isSyncing = false
+            log("\n🛑 Sync aborted by user.\n")
+            playSound(.failure)
+        }
+    }
+
+    // MARK: - Full Disk Task Scan
+
+    func refreshFullDiskTasks() {
+        guard syncEntireDrive, let main = mainDriveURL else { return }
+
+        Task {
+            // All work happens on @MainActor Task — no detached tasks, no makeIterator issues
+            let scopeStarted = main.startAccessingSecurityScopedResource()
+            defer { if scopeStarted { main.stopAccessingSecurityScopedResource() } }
+
+            do {
+                let contents = try FileManager.default.contentsOfDirectory(
+                    at: main,
+                    includingPropertiesForKeys: [.isDirectoryKey, .isHiddenKey, .fileSizeKey],
+                    options: [.skipsHiddenFiles]
+                )
+
+                var collected: [BackupTask] = []
+                for url in contents {
+                    guard (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+                    else { continue }
+
+                    // Check if folder exists on backup disk ONLY if the target disk is available.
+                    // If the backup disk isn't mounted, we don't know if it's missing, so default to false
+                    // instead of showing false-positive yellow icons.
+                    var isMissing = false
+                    if let sec = self.secondaryDriveURL, self.isVolumeMounted(sec) {
+                        let secStarted = sec.startAccessingSecurityScopedResource()
+                        let dest = sec.appendingPathComponent(url.lastPathComponent)
+                        isMissing = !FileManager.default.fileExists(atPath: dest.path)
+                        if secStarted { sec.stopAccessingSecurityScopedResource() }
+                    }
+
+                    // Compute size synchronously (scope is held, no detached task needed)
+                    let size = computeSize(of: url)
+
+                    var task = BackupTask(
+                        folderName:  url.lastPathComponent,
+                        relativePath: url.lastPathComponent,
+                        bookmarkData: BookmarkManager.createBookmark(for: url)
+                    )
+                    task.isMissingOnBackup = isMissing
+                    task.sizeBytes = size
+                    
+                    // Recover persistent 'Synced' status from history
+                    let absPath = main.appendingPathComponent(task.relativePath).path
+                    if SyncHistoryManager.shared.date(for: absPath) != nil {
+                        task.status = .success
+                        task.progress = 1.0
+                    }
+                    
+                    collected.append(task)
+                }
+
+                collected.sort { $0.folderName < $1.folderName }
+                self.tasks = collected
+
+            } catch {
+                self.log("⚠️ Failed to scan main disk: \(error.localizedDescription)\n")
+            }
+        }
+    }
+
+    /// Computes total size of a directory synchronously. Called from @MainActor context
+    /// while the security scope is still held — safe to use FileManager directly.
+    private func computeSize(of url: URL) -> Int64 {
+        var total: Int64 = 0
+        guard let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else { return 0 }
+        // Iterate synchronously — no async boundary, no makeIterator issue
+        while let itemURL = enumerator.nextObject() as? URL {
+            if let size = (try? itemURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize {
+                total += Int64(size)
+            }
+        }
+        return total
+    }
+
+    // MARK: - Sound
+
+    private enum SoundType { case success, failure }
+
+    private func playSound(_ type: SoundType) {
+        guard !isMuted else { return }
+        switch type {
+        case .success: Self.successSound?.play()
+        case .failure: Self.failureSound?.play()
+        }
+    }
+
+    // MARK: - Log
+
+    func log(_ text: String) {
+        logOutput += text
+        if logOutput.count > 100_000 {
+            logOutput = String(logOutput.suffix(80_000))
+        }
+    }
+
+    // MARK: - Task Status & Progress
+
+    private func updateTaskProgress(_ id: UUID, progress: Double) {
+        guard let index = tasks.firstIndex(where: { $0.id == id }) else { return }
+        tasks[index].progress = progress
+        
+        let base = Double(max(0, currentTaskIndex - 1)) / Double(max(1, totalTasksCount))
+        let current = progress / Double(max(1, totalTasksCount))
+        globalProgress = min(1.0, base + current)
+    }
+
+    private func setStatus(_ id: UUID, _ status: SyncStatus, date: Date? = nil) {
+        guard let index = tasks.firstIndex(where: { $0.id == id }) else { return }
+        tasks[index].status = status
+        if let d = date { tasks[index].lastSyncDate = d }
+        if status == .success { 
+            tasks[index].progress = 1.0 
+            tasks[index].isMissingOnBackup = false
+        }
+        if status == .idle { tasks[index].progress = 0.0 }
+    }
+
+    // MARK: - Helpers
+
+    private func pickFolder(message: String, startingAt dir: URL? = nil) -> URL? {
+        let panel = NSOpenPanel()
+        panel.message               = message
+        panel.canChooseDirectories  = true
+        panel.canChooseFiles        = false
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories  = true
+        if let dir { panel.directoryURL = dir }
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+
+    private func pickVolume(message: String) -> URL? {
+        let panel = NSOpenPanel()
+        panel.message               = message
+        panel.canChooseDirectories  = true
+        panel.canChooseFiles        = false
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories  = false
+        panel.directoryURL          = URL(fileURLWithPath: "/Volumes")
+        panel.treatsFilePackagesAsDirectories = false
+
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        let isVol = (try? url.resourceValues(forKeys: [.isVolumeKey]))?.isVolume == true
+        if isVol { return url }
+        if url.pathComponents.count == 3 && url.path.hasPrefix("/Volumes/") { return url }
+        return nil
+    }
+
+    // MARK: - Persistence
+
+    private func restoreState() {
+        syncEntireDrive = UserDefaults.standard.bool(forKey: Keys.syncMode)
+
+        if let data = UserDefaults.standard.data(forKey: Keys.mainBookmark),
+           let url  = BookmarkManager.resolveBookmark(data) { mainDriveURL = url }
+
+        if let data = UserDefaults.standard.data(forKey: Keys.secondaryBookmark),
+           let url  = BookmarkManager.resolveBookmark(data) { secondaryDriveURL = url }
+
+        if let data    = UserDefaults.standard.data(forKey: Keys.tasks),
+           let decoded = try? JSONDecoder().decode([BackupTask].self, from: data) {
+            tasks = decoded.map {
+                var t = $0
+                // Reset UI state that shouldn't persist across launches
+                t.isMissingOnBackup = false
+                t.progress = 0.0
+
+                // Recover persistent 'Synced' status from history
+                if let main = mainDriveURL {
+                    let absPath = main.appendingPathComponent(t.relativePath).path
+                    if SyncHistoryManager.shared.date(for: absPath) != nil {
+                        t.status = .success
+                        t.progress = 1.0
+                    } else {
+                        t.status = .idle
+                    }
+                } else {
+                    t.status = .idle
+                }
+                return t
+            }
+        }
+
+        isMuted = UserDefaults.standard.bool(forKey: Keys.isMuted)
+    }
+
+    func saveTasks() {
+        if let encoded = try? JSONEncoder().encode(tasks) {
+            UserDefaults.standard.set(encoded, forKey: Keys.tasks)
+        }
+        UserDefaults.standard.set(syncEntireDrive, forKey: Keys.syncMode)
+        UserDefaults.standard.set(isMuted, forKey: Keys.isMuted)
+    }
+
+    // MARK: - Schedule Timer
+
+    /// Call this whenever schedule settings might have changed.
+    /// Tears down the old timer and starts a new one if configured.
+    func setupScheduler() {
+        scheduleTimer?.invalidate()
+        scheduleTimer = nil
+
+        let enabled  = UserDefaults.standard.bool(forKey: SchKeys.enabled)
+        let hours    = UserDefaults.standard.double(forKey: SchKeys.interval)  // stored as Double (hours)
+        guard enabled, hours > 0 else { return }
+
+        let interval = hours * 3600
+        // Timer fires on the main run loop — safe to call syncAll() which is @MainActor
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, !self.isSyncing else { return }
+                self.syncAll()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        scheduleTimer = timer
+    }
+
+    // MARK: - Disk Availability
+
+    /// Checks on launch whether the persisted disk paths still exist.
+    /// Clears URLs and task list if paths are unreachable to prevent ghost syncs.
+    private func checkDiskAvailability() {
+        if let url = mainDriveURL, !FileManager.default.fileExists(atPath: url.path) {
+            mainDriveURL = nil
+            tasks = []
+            log("⚠️ Main disk not available — cleared.\n")
+        }
+        if let url = secondaryDriveURL, !FileManager.default.fileExists(atPath: url.path) {
+            secondaryDriveURL = nil
+            log("⚠️ Backup disk not available — cleared.\n")
+        }
+    }
+
+    // MARK: - Volume Monitor
+
+    private func setupVolumeMonitor() {
+        let nc = NSWorkspace.shared.notificationCenter
+        nc.addObserver(
+            forName: NSWorkspace.didUnmountNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            let path = (notification.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL)?.path ?? ""
+
+            // Access @MainActor-isolated properties inside the task to satisfy Swift 6 concurrency
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let main = self.mainDriveURL, main.path.hasPrefix(path) {
+                    self.mainDriveURL = nil
+                    self.tasks = []
+                    self.log("⚠️ Main disk unmounted. Task list cleared.\n")
+                }
+                if let sec = self.secondaryDriveURL, sec.path.hasPrefix(path) {
+                    self.secondaryDriveURL = nil
+                    self.log("⚠️ Backup disk unmounted.\n")
+                }
+            }
+        }
+    }
+}
