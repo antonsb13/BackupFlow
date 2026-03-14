@@ -9,6 +9,9 @@ struct BackupFlowApp: App {
         WindowGroup(id: "main") {
             ContentView()
                 .environmentObject(viewModel)
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+                    viewModel.terminateOnExit()
+                }
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified(showsTitle: true))

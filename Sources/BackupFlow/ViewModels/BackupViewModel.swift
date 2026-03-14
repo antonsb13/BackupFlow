@@ -415,6 +415,16 @@ final class BackupViewModel: ObservableObject {
         }
     }
 
+    /// Blocks safely to ensure all background `rsync` processes are killed on app exit.
+    nonisolated func terminateOnExit() {
+        let sema = DispatchSemaphore(value: 0)
+        Task.detached {
+            await self.engine.terminateAllProcesses()
+            sema.signal()
+        }
+        _ = sema.wait(timeout: .now() + 1.5)
+    }
+
     // MARK: - Full Disk Task Scan
 
     func refreshFullDiskTasks() {

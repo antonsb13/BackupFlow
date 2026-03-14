@@ -5,7 +5,7 @@ actor SyncEngine {
 
     // MARK: - State
 
-    private var currentProcess: Process?
+    private var activeProcesses: [Process] = []
 
     // MARK: - Flags
 
@@ -72,6 +72,7 @@ actor SyncEngine {
             process.executableURL = URL(fileURLWithPath: "/usr/bin/rsync")
             process.arguments = args
             process.standardOutput = outPipe
+            self.activeProcesses.append(process)
             
             let storage = OutputStorage()
             outPipe.fileHandleForReading.readabilityHandler = { handle in
@@ -81,6 +82,7 @@ actor SyncEngine {
             process.terminationHandler = { _ in
                 outPipe.fileHandleForReading.readabilityHandler = nil
                 _ = _keepAlive
+                Task { [weak process] in if let p = process { await self.removeProcess(p) } }
                 
                 guard let text = storage.get() else {
                     continuation.resume(returning: 0)
@@ -154,13 +156,26 @@ actor SyncEngine {
         return result
     }
 
-    /// Immediately terminates the running rsync process (if any).
+    /// Immediately terminates all running rsync processes.
+    func terminateAllProcesses() {
+        for process in activeProcesses {
+            if process.isRunning {
+                process.terminate()
+            }
+        }
+        activeProcesses.removeAll()
+    }
+
+    /// Aborts current sync entirely.
     func abort() {
-        currentProcess?.terminate()
-        currentProcess = nil
+        terminateAllProcesses()
     }
 
     // MARK: - Private
+
+    private func removeProcess(_ process: Process) {
+        activeProcesses.removeAll { $0 === process }
+    }
 
     private nonisolated func ensureTrailingSlash(_ path: String) -> String {
         path.hasSuffix("/") ? path : path + "/"
@@ -209,7 +224,7 @@ actor SyncEngine {
             process.standardOutput = outPipe
             process.standardError  = errPipe
 
-            self.currentProcess = process
+            self.activeProcesses.append(process)
 
             // Stream stdout — parse to-chk=X/Y fraction, filter noisy lines
             outPipe.fileHandleForReading.readabilityHandler = { @Sendable [self] handle in
@@ -252,7 +267,7 @@ actor SyncEngine {
             process.terminationHandler = { @Sendable p in
                 outPipe.fileHandleForReading.readabilityHandler = nil
                 errPipe.fileHandleForReading.readabilityHandler = nil
-                Task { await self.clearProcess() }
+                Task { await self.removeProcess(p) }
                 let status = p.terminationStatus
                 continuation.resume(returning: status == 0 || status == 23)
             }
@@ -261,13 +276,10 @@ actor SyncEngine {
                 try process.run()
             } catch {
                 onOutput("❌ rsync launch failed: \(error.localizedDescription)\n")
-                self.currentProcess = nil
+                self.removeProcess(process)
                 continuation.resume(returning: false)
             }
         }
     }
 
-    private func clearProcess() {
-        currentProcess = nil
-    }
 }
