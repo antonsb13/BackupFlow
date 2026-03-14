@@ -5,15 +5,16 @@ struct TaskListView: View {
 
     var body: some View {
         Group {
-            if vm.tasks.isEmpty {
-                if vm.mainDriveURL == nil || vm.secondaryDriveURL == nil {
-                    // Both modes show this if disks are missing
-                    emptyStatePlaceholder(
-                        icon: "externaldrive.fill.badge.xmark",
-                        title: "Disks Required",
-                        desc: "Please select both the Main and Backup disks to view folders."
-                    )
-                } else if vm.syncEntireDrive {
+            // Guard: If EITHER disk is nil, force the "Disks Required" empty state.
+            // This is a belt-and-suspenders check — works even if tasks[] wasn't cleared yet.
+            if vm.mainDriveURL == nil || vm.secondaryDriveURL == nil {
+                emptyStatePlaceholder(
+                    icon: "externaldrive.fill.badge.xmark",
+                    title: "Disks Required",
+                    desc: "Please select both the Main and Backup disks to view folders."
+                )
+            } else if vm.tasks.isEmpty {
+                if vm.syncEntireDrive {
                     emptyStatePlaceholder(icon: "magnifyingglass", title: "Scanning...", desc: "Reading top-level directories.")
                 } else {
                     folderEmptyState
@@ -22,6 +23,9 @@ struct TaskListView: View {
                 taskTable
             }
         }
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: vm.tasks.isEmpty)
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: vm.mainDriveURL == nil)
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: vm.secondaryDriveURL == nil)
     }
 
     // MARK: - Table

@@ -15,10 +15,10 @@ final class BackupViewModel: ObservableObject {
     // MARK: - Published State
 
     @Published var mainDriveURL: URL? {
-        didSet { handleDriveAvailabilityChange() }
+        didSet { guard !isRestoring else { return }; handleDriveAvailabilityChange() }
     }
     @Published var secondaryDriveURL: URL? {
-        didSet { handleDriveAvailabilityChange() }
+        didSet { guard !isRestoring else { return }; handleDriveAvailabilityChange() }
     }
     @Published var syncEntireDrive: Bool = false
     @Published var tasks: [BackupTask] = []
@@ -41,6 +41,8 @@ final class BackupViewModel: ObservableObject {
 
     private let engine = SyncEngine()
     private var scheduleTimer: Timer?
+    private var diskWatchdogTimer: Timer?
+    private var isRestoring = false // Prevents `didSet` from firing during `restoreState()`
 
     private enum SchKeys {
         static let enabled  = "bf.scheduleEnabled"
@@ -63,10 +65,14 @@ final class BackupViewModel: ObservableObject {
     // MARK: - Init
 
     init() {
+        isRestoring = true
         restoreState()
+        isRestoring = false
         checkDiskAvailability()     // clear ghost paths that are no longer reachable
+        handleDriveAvailabilityChange() // initial UI sync after state restoration
         setupScheduler()            // start background sync timer if schedule was configured
         setupVolumeMonitor()        // listen for disk eject/unmount events
+        startDiskWatchdog()         // periodic FileManager check for physical ejections
     }
 
     // MARK: - Computed
@@ -101,20 +107,18 @@ final class BackupViewModel: ObservableObject {
 
     func selectMainDrive() {
         guard let url = pickVolume(message: "Select the Main Disk") else { return }
-        mainDriveURL = url
         if let data = BookmarkManager.createBookmark(for: url) {
             UserDefaults.standard.set(data, forKey: Keys.mainBookmark)
         }
-        if syncEntireDrive { refreshFullDiskTasks() }
+        mainDriveURL = url  // triggers didSet → handleDriveAvailabilityChange
     }
 
     func selectSecondaryDrive() {
         guard let url = pickVolume(message: "Select the Backup Disk") else { return }
-        secondaryDriveURL = url
         if let data = BookmarkManager.createBookmark(for: url) {
             UserDefaults.standard.set(data, forKey: Keys.secondaryBookmark)
         }
-        if syncEntireDrive { refreshFullDiskTasks() }
+        secondaryDriveURL = url  // triggers didSet → handleDriveAvailabilityChange
     }
 
     // MARK: - Task Management
@@ -642,6 +646,8 @@ final class BackupViewModel: ObservableObject {
 
     private func setupVolumeMonitor() {
         let nc = NSWorkspace.shared.notificationCenter
+        
+        // Unmount: clear the matching drive URL
         nc.addObserver(
             forName: NSWorkspace.didUnmountNotification,
             object: nil,
@@ -649,13 +655,10 @@ final class BackupViewModel: ObservableObject {
         ) { [weak self] notification in
             guard let self else { return }
             let path = (notification.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL)?.path ?? ""
-
-            // Access @MainActor-isolated properties inside the task to satisfy Swift 6 concurrency
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if let main = self.mainDriveURL, main.path.hasPrefix(path) {
                     self.mainDriveURL = nil
-                    self.tasks = []
                     self.log("⚠️ Main disk unmounted. Task list cleared.\n")
                 }
                 if let sec = self.secondaryDriveURL, sec.path.hasPrefix(path) {
@@ -663,6 +666,71 @@ final class BackupViewModel: ObservableObject {
                     self.log("⚠️ Backup disk unmounted.\n")
                 }
             }
+        }
+        
+        // Mount: attempt to restore bookmarks if a newly-mounted volume matches our saved ones
+        nc.addObserver(
+            forName: NSWorkspace.didMountNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.tryRestoreBookmarksAfterMount()
+            }
+        }
+    }
+    
+    // MARK: - Disk Watchdog
+    
+    private func startDiskWatchdog() {
+        diskWatchdogTimer?.invalidate()
+        let wt = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.validateDiskConnection()
+            }
+        }
+        RunLoop.main.add(wt, forMode: .common)
+        diskWatchdogTimer = wt
+    }
+    
+    /// Uses FileManager to detect physically ejected drives that may not have triggered a notification.
+    private func validateDiskConnection() {
+        guard !isSyncing else { return } // Don't abort mid-sync
+        var didChange = false
+        if let url = mainDriveURL, !FileManager.default.fileExists(atPath: url.path) {
+            log("⚠️ Watchdog: Main disk gone. Clearing.\n")
+            mainDriveURL = nil   // triggers didSet → handleDriveAvailabilityChange
+            didChange = true
+        }
+        if let url = secondaryDriveURL, !FileManager.default.fileExists(atPath: url.path) {
+            log("⚠️ Watchdog: Backup disk gone. Clearing.\n")
+            secondaryDriveURL = nil
+            didChange = true
+        }
+        if didChange {
+            alertMessage = "A disk was disconnected. Please reconnect to continue."
+        }
+    }
+    
+    private func tryRestoreBookmarksAfterMount() {
+        var didRestore = false
+        if mainDriveURL == nil,
+           let data = UserDefaults.standard.data(forKey: Keys.mainBookmark),
+           let url  = BookmarkManager.resolveBookmark(data),
+           FileManager.default.fileExists(atPath: url.path) {
+            mainDriveURL = url
+            didRestore = true
+        }
+        if secondaryDriveURL == nil,
+           let data = UserDefaults.standard.data(forKey: Keys.secondaryBookmark),
+           let url  = BookmarkManager.resolveBookmark(data),
+           FileManager.default.fileExists(atPath: url.path) {
+            secondaryDriveURL = url
+            didRestore = true
+        }
+        if didRestore {
+            log("✅ Disk reconnected. Sessions restored.\n")
         }
     }
 }
