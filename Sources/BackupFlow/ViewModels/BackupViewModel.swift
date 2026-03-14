@@ -31,6 +31,7 @@ final class BackupViewModel: ObservableObject {
     @Published var isMuted: Bool = false
     @Published var alertMessage: String? = nil
     @Published var useChecksum: Bool = false
+    @Published var isAborting: Bool = false
 
     // Global Progress State
     @Published var globalProgress: Double = 0.0
@@ -211,6 +212,8 @@ final class BackupViewModel: ObservableObject {
             if mStarted { mURL.stopAccessingSecurityScopedResource() }
         }
         
+        isAborting = false
+        
         // 1. Calculate Target Bytes strictly before processing — mark rows as .calculating
         log("Calculating transfer sizes...\n")
         var queueTotalBytes: Int64 = 0
@@ -221,6 +224,7 @@ final class BackupViewModel: ObservableObject {
                 to: sURL.appendingPathComponent(snapshot[i].relativePath),
                 useChecksum: checksum
             )
+            if isAborting { return }
             snapshot[i].targetBytes = max(1, size)
             queueTotalBytes += size
         }
@@ -256,6 +260,8 @@ final class BackupViewModel: ObservableObject {
                 }
             }
 
+            if isAborting { break }
+
             if ok {
                 let absPath = mURL.appendingPathComponent(task.relativePath).path
                 SyncHistoryManager.shared.record(absolutePath: absPath)
@@ -266,6 +272,8 @@ final class BackupViewModel: ObservableObject {
             log(ok ? "  ✅ Done.\n" : "  ❌ Failed.\n")
             if !ok { anyFailure = true }
         }
+        
+        if isAborting { return }
 
         // 3. Final sweep — counts as the last task
         currentTaskIndex = totalTasksCount
@@ -301,6 +309,8 @@ final class BackupViewModel: ObservableObject {
             if sStarted { sURL.stopAccessingSecurityScopedResource() }
             if mStarted { mURL.stopAccessingSecurityScopedResource() }
         }
+        
+        isAborting = false
         
         // Begin calculating sizes — mark each row as calculating
         log("Calculating transfer sizes...\n")
@@ -353,6 +363,8 @@ final class BackupViewModel: ObservableObject {
             // Release in reverse order
             folderScopeURL?.stopAccessingSecurityScopedResource()
 
+            if isAborting { break }
+
             // Record sync date by absolute path (cross-mode persistence)
             if ok {
                 let absPath = mURL.appendingPathComponent(task.relativePath).path
@@ -364,6 +376,8 @@ final class BackupViewModel: ObservableObject {
             log(ok ? "  ✅ Done.\n" : "  ❌ Failed.\n")
             if !ok { anyFailure = true }
         }
+        
+        if isAborting { return }
 
         globalProgress = 1.0
         saveTasks()
@@ -372,8 +386,30 @@ final class BackupViewModel: ObservableObject {
 
     func abortSync() {
         Task {
+            isAborting = true
+            let wasCalculating = (syncState == .calculating || syncState == .idle)
             await engine.abort()
+            
+            if wasCalculating {
+                // Safe to revert — nothing transferred yet
+                for i in 0..<tasks.count {
+                    if let main = mainDriveURL, SyncHistoryManager.shared.date(for: main.appendingPathComponent(tasks[i].relativePath).path) != nil {
+                        setStatus(tasks[i].id, .success)
+                    } else {
+                        setStatus(tasks[i].id, .idle)
+                    }
+                }
+            } else {
+                // Aborted mid-transfer — leave aborted warning
+                for i in 0..<tasks.count {
+                    if tasks[i].status == .syncing || tasks[i].status == .verifying || tasks[i].status == .calculating {
+                        setStatus(tasks[i].id, .aborted)
+                    }
+                }
+            }
+            
             syncState = .idle
+            globalProgress = 0.0
             log("\n🛑 Sync aborted by user.\n")
             playSound(.failure)
         }

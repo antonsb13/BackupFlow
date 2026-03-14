@@ -221,6 +221,7 @@ struct StatusBadge: View {
         case .verifying:   return .orange
         case .success:     return .green
         case .failed:      return .red
+        case .aborted:     return .orange
         }
     }
 }

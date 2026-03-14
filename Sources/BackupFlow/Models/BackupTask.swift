@@ -9,6 +9,7 @@ enum SyncStatus: String, Codable, Equatable {
     case verifying  = "Verifying"
     case success    = "Synced"
     case failed     = "Failed"
+    case aborted    = "Aborted"
 }
 
 // MARK: - Backup Task
