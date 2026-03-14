@@ -73,7 +73,7 @@ When a sync is triggered:
 ## 🖥 Installation
 
 ### Prerequisites
-- macOS 14.0 (Sonoma) or newer.
+- macOS 15.0 (Sequoia) or newer.
 - Xcode 15.0+ installed.
 
 ### Steps
