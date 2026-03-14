@@ -35,7 +35,8 @@ Unlike bulky cloud clients or complex terminal scripts, BackupFlow lives quietly
 
 ### Pro Features (v1.5.0)
 - **🔬 Deep Checksum Verification** — Toggle on to compare every file's SHA1 hash, not just size/date. Catches corruption that timestamps miss. Status badge updates to **"Verifying"** during this phase.
-- **♻️ Process Lifecycle Management** — Advanced memory and process tracker guarantees all background rsync tasks are cleanly killed when the app exits or a task is aborted, strictly preventing "zombie" processes and ensuring external disks can be safely ejected.
+- **🛡️ Rock-Solid Task Management** — Immediate termination of all background processes on abort or app exit (no zombie tasks).
+- **🛑 Safe Cancellation** — Intelligent sync loop that prevents cascading status changes after a manual stop.
 - **📊 Calibrated Progress (All 4 Modes)** — Progress rings and row bars are driven by the `to-chk=X/Y` rsync queue position, which is immune to checksum false-completions.
 - **🔒 Strict Phase Separation** — Three distinct sync states:
 
