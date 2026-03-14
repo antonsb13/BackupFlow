@@ -2,6 +2,14 @@ import Foundation
 import AppKit
 
 @MainActor
+enum SyncState: Equatable {
+    case idle
+    case calculating
+    case transferring
+    case completed
+}
+
+@MainActor
 final class BackupViewModel: ObservableObject {
 
     // MARK: - Published State
@@ -13,7 +21,8 @@ final class BackupViewModel: ObservableObject {
     @Published var selectedTaskIDs: Set<UUID> = []
     @Published var logOutput: String = ""
     @Published var isLogExpanded: Bool = false
-    @Published var isSyncing: Bool = false
+    @Published var syncState: SyncState = .idle
+    var isSyncing: Bool { syncState == .calculating || syncState == .transferring }
     @Published var showAbortConfirm: Bool = false
     @Published var isMuted: Bool = false
     @Published var alertMessage: String? = nil
@@ -59,7 +68,10 @@ final class BackupViewModel: ObservableObject {
     // MARK: - Computed
 
     var statusText: String {
-        if isSyncing {
+        switch syncState {
+        case .calculating:
+            return "Preparing..."
+        case .transferring:
             let pct = Int(globalProgress * 100)
             let actionText = useChecksum ? "Verifying" : "Syncing"
             if totalTasksCount > 1 {
@@ -67,7 +79,12 @@ final class BackupViewModel: ObservableObject {
             } else {
                 return "\(actionText) (\(pct)%)"
             }
+        case .completed:
+            return "Synced"
+        case .idle:
+            break
         }
+        
         if mainDriveURL == nil || secondaryDriveURL == nil { return "Not configured" }
         let failed = tasks.filter { $0.status == .failed }.count
         if failed > 0 { return "\(failed) task(s) failed" }
@@ -156,12 +173,12 @@ final class BackupViewModel: ObservableObject {
             return
         }
 
-        isSyncing = true
+        syncState = .calculating
         log("═══ Backup Flow  \(Date().formatted()) ═══\n")
 
         Task {
             await performSync(mainURL: mainURL, secondaryURL: secondaryURL)
-            self.isSyncing = false
+            self.syncState = .idle
         }
     }
 
@@ -203,8 +220,9 @@ final class BackupViewModel: ObservableObject {
         let rootSweepSize = await engine.calculateTransferSize(from: mURL, to: sURL, useChecksum: checksum)
         queueTotalBytes += rootSweepSize
         
-        self.tasks = snapshot // Update UI context with targetBytes
-        globalProgress = 0.001 // Tiny glow ring indicating calculation is done
+        self.tasks = snapshot
+        globalProgress = 0.0 // reset any previous completion state
+        syncState = .transferring
 
         var queueTransferredBytes: Int64 = 0
         totalTasksCount = snapshot.count + 1
@@ -257,6 +275,7 @@ final class BackupViewModel: ObservableObject {
         if sweepOk { SyncHistoryManager.shared.record(absolutePath: mURL.path) }
         
         globalProgress = 1.0
+        syncState = .completed
         log(sweepOk && !anyFailure ? "\n✅ Full drive sync complete.\n" : "\n❌ Sync finished with warnings.\n")
         playSound(sweepOk && !anyFailure ? .success : .failure)
     }
@@ -287,7 +306,9 @@ final class BackupViewModel: ObservableObject {
         }
         
         self.tasks = snapshot
-        globalProgress = 0.001
+        globalProgress = 0.0
+        syncState = .transferring
+        
         var queueTransferredBytes: Int64 = 0
 
         for (i, task) in snapshot.enumerated() {
@@ -340,7 +361,7 @@ final class BackupViewModel: ObservableObject {
     func abortSync() {
         Task {
             await engine.abort()
-            isSyncing = false
+            syncState = .idle
             log("\n🛑 Sync aborted by user.\n")
             playSound(.failure)
         }

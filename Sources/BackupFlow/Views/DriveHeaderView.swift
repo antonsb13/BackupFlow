@@ -114,6 +114,7 @@ private struct ModeButton: View {
 private struct SyncButton: View {
     @EnvironmentObject var vm: BackupViewModel
     @State private var isHovered = false
+    @State private var isPulsing = false
 
     var body: some View {
         let canSync = !vm.isSyncing && vm.mainDriveURL != nil && vm.secondaryDriveURL != nil
@@ -135,18 +136,27 @@ private struct SyncButton: View {
 
                 // Global Progress Ring
                 if vm.isSyncing {
-                    // Track (always visible during calculateTransferSize dry runs)
+                    // Track
                     Circle()
                         .stroke(Color.white.opacity(0.2), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
                         .frame(width: 53, height: 53)
                     
-                    // Active Progress
-                    Circle()
-                        .trim(from: 0, to: vm.globalProgress)
-                        .stroke(Color.white.opacity(0.9), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
-                        .frame(width: 53, height: 53)
-                        .rotationEffect(.degrees(-90))
-                        .animation(.linear(duration: 0.15), value: vm.globalProgress)
+                    if vm.syncState == .calculating {
+                        // Pulsing indeterminate progress
+                        Circle()
+                            .stroke(Color.white.opacity(isPulsing ? 0.8 : 0.3), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                            .frame(width: 53, height: 53)
+                            .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: isPulsing)
+                            .onAppear { isPulsing = true }
+                    } else if vm.syncState == .transferring {
+                        // Active Progress
+                        Circle()
+                            .trim(from: 0, to: vm.globalProgress)
+                            .stroke(Color.white.opacity(0.9), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                            .frame(width: 53, height: 53)
+                            .rotationEffect(.degrees(-90))
+                            .animation(.linear(duration: 0.15), value: vm.globalProgress)
+                    }
                 }
 
                 Group {
