@@ -232,7 +232,7 @@ final class BackupViewModel: ObservableObject {
         globalProgress = 0.0 // reset any previous completion state
         syncState = .transferring
 
-        var queueTransferredBytes: Int64 = 0
+        var completedTasks = 0
         totalTasksCount = snapshot.count + 1
 
         // 2. Sync each top-level folder
@@ -248,17 +248,17 @@ final class BackupViewModel: ObservableObject {
                 useChecksum:  checksum
             ) { [weak self] text in
                 Task { @MainActor [weak self] in self?.log(text) }
-            } onProgress: { [weak self, id = task.id] bytesTransferred in
-                Task { @MainActor [weak self] in 
-                    guard let self = self else { return }
-                    self.updateTaskProgressBytes(id: id, bytesTransferred: bytesTransferred, queueTransferredBytes: queueTransferredBytes, queueTotalBytes: max(1, queueTotalBytes))
+            } onProgress: { [weak self, id = task.id] fraction in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.updateTaskProgressFraction(id: id, fraction: fraction, completedTasks: completedTasks, totalTasks: self.totalTasksCount)
                 }
             }
 
             if ok {
                 let absPath = mURL.appendingPathComponent(task.relativePath).path
                 SyncHistoryManager.shared.record(absolutePath: absPath)
-                queueTransferredBytes += task.targetBytes 
+                completedTasks += 1
             }
 
             setStatus(task.id, ok ? .success : .failed, date: ok ? Date() : nil)
@@ -266,17 +266,17 @@ final class BackupViewModel: ObservableObject {
             if !ok { anyFailure = true }
         }
 
-        // 3. Final sweep
+        // 3. Final sweep — counts as the last task
         currentTaskIndex = totalTasksCount
         log("\n▶ [\(totalTasksCount)/\(totalTasksCount)] Sweeping root files...\n")
         
         let sweepOk = await engine.syncEntireDrive(from: mURL, to: sURL, useChecksum: checksum) { [weak self] text in
             Task { @MainActor [weak self] in self?.log(text) }
-        } onProgress: { [weak self] bytesTransferred in
+        } onProgress: { [weak self, completedTasks] fraction in
             Task { @MainActor [weak self] in
-                guard let self = self else { return }
-                let progress = Double(queueTransferredBytes + bytesTransferred) / Double(max(1, queueTotalBytes))
-                self.globalProgress = min(0.99, max(0.0, progress))
+                guard let self else { return }
+                let global = (Double(completedTasks) + fraction) / Double(max(1, self.totalTasksCount))
+                self.globalProgress = min(0.99, max(0.0, global))
             }
         }
         
@@ -317,7 +317,7 @@ final class BackupViewModel: ObservableObject {
         globalProgress = 0.0
         syncState = .transferring
         
-        var queueTransferredBytes: Int64 = 0
+        var completedTasks = 0
 
         for (i, task) in snapshot.enumerated() {
             currentTaskIndex = i + 1
@@ -339,10 +339,10 @@ final class BackupViewModel: ObservableObject {
                 useChecksum:  checksum
             ) { [weak self] text in
                 Task { @MainActor [weak self] in self?.log(text) }
-            } onProgress: { [weak self, id = task.id] bytesTransferred in
+            } onProgress: { [weak self, id = task.id] fraction in
                 Task { @MainActor [weak self] in
-                    guard let self = self else { return }
-                    self.updateTaskProgressBytes(id: id, bytesTransferred: bytesTransferred, queueTransferredBytes: queueTransferredBytes, queueTotalBytes: max(1, queueTotalBytes))
+                    guard let self else { return }
+                    self.updateTaskProgressFraction(id: id, fraction: fraction, completedTasks: completedTasks, totalTasks: self.totalTasksCount)
                 }
             }
 
@@ -353,7 +353,7 @@ final class BackupViewModel: ObservableObject {
             if ok {
                 let absPath = mURL.appendingPathComponent(task.relativePath).path
                 SyncHistoryManager.shared.record(absolutePath: absPath)
-                queueTransferredBytes += task.targetBytes
+                completedTasks += 1
             }
 
             setStatus(task.id, ok ? .success : .failed, date: ok ? Date() : nil)
@@ -479,15 +479,18 @@ final class BackupViewModel: ObservableObject {
 
     // MARK: - Task Status & Progress
 
-    private func updateTaskProgressBytes(id: UUID, bytesTransferred: Int64, queueTransferredBytes: Int64, queueTotalBytes: Int64) {
+    /// Updates task and global progress using a 0.0–1.0 file-queue fraction from `to-chk=X/Y` parser.
+    /// - Parameters:
+    ///   - id: The task whose row progress bar to update.
+    ///   - fraction: Fraction of files processed for this specific task (0.0 – 0.99).
+    ///   - completedTasks: Number of fully-completed tasks in the queue so far.
+    ///   - totalTasks: Total number of tasks in the queue.
+    private func updateTaskProgressFraction(id: UUID, fraction: Double, completedTasks: Int, totalTasks: Int) {
         guard let index = tasks.firstIndex(where: { $0.id == id }) else { return }
-        
-        let target = tasks[index].targetBytes
-        let folderProgress = Double(bytesTransferred) / Double(target)
-        // Clamp to 99% while running. 100% is set formally upon termination.
-        tasks[index].progress = min(0.99, max(0.0, folderProgress))
-        
-        let global = Double(queueTransferredBytes + bytesTransferred) / Double(queueTotalBytes)
+        // Per-folder row bar: clamp strictly to 0.99 while running
+        tasks[index].progress = min(0.99, max(0.01, fraction))
+        // Global ring: (completedTasks + currentFraction) / totalTasks — clamped to 0.99
+        let global = (Double(completedTasks) + fraction) / Double(max(1, totalTasks))
         globalProgress = min(0.99, max(0.0, global))
     }
 

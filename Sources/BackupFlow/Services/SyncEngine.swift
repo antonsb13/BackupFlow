@@ -110,7 +110,7 @@ actor SyncEngine {
         to secondaryURL: URL,
         useChecksum: Bool,
         onOutput: @escaping @Sendable (String) -> Void,
-        onProgress: @escaping @Sendable (Int64) -> Void = { _ in }
+        onProgress: @escaping @Sendable (Double) -> Void = { _ in }
     ) async -> Bool {
         let src = ensureTrailingSlash(mainURL.path)
         let dst = ensureTrailingSlash(secondaryURL.path)
@@ -131,7 +131,7 @@ actor SyncEngine {
         secondaryRoot: URL,
         useChecksum: Bool,
         onOutput: @escaping @Sendable (String) -> Void,
-        onProgress: @escaping @Sendable (Int64) -> Void = { _ in }
+        onProgress: @escaping @Sendable (Double) -> Void = { _ in }
     ) async -> Bool {
         let srcURL = mainRoot.appendingPathComponent(relativePath)
         let dstURL = secondaryRoot.appendingPathComponent(relativePath)
@@ -166,59 +166,38 @@ actor SyncEngine {
         path.hasSuffix("/") ? path : path + "/"
     }
 
-    /// Filters raw rsync progress lines (byte counts, transfer rate, ETA) from stdout.
-    /// These lines match the pattern:   "      1,234,567  98%    4.56MB/s    0:00:01"
-    /// Only file names, folder boundaries, and completion summaries are forwarded.
+    /// Filters raw rsync progress lines from stdout; only file names and summaries are forwarded.
     private nonisolated func shouldShow(_ line: String) -> Bool {
         let t = line.trimmingCharacters(in: .whitespaces)
-        // Skip blank lines
         if t.isEmpty { return false }
-        // Skip progress lines: start with digits, commas, spaces (byte count pattern)
-        // e.g. "    1,234,567 100%    4.52MB/s    0:00:00 (xfr#12, to-chk=3/16)"
+        // Skip per-file byte-progress lines ("  1,234,567  98%  4.56MB/s  0:00:01 (xfr#1, to-chk=3/16)")
         if t.first?.isNumber == true && (t.contains("%") || t.contains("xfr#")) { return false }
-        // Skip the rsync summary stats block ("sent X bytes  received Y bytes...")
         if t.hasPrefix("sent ") && t.contains("bytes") { return false }
         if t.hasPrefix("total size") { return false }
         return true
     }
 
-    /// Parses bytes transferred from an rsync progress line (e.g. "      1,234,567  98%    ").
-    /// Returns (bytes: Int64, isCompleted: Bool) if successful, nil otherwise.
-    private nonisolated func parseProgressBytes(from line: String) -> (bytes: Int64, isCompleted: Bool)? {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        let parts = trimmed.split(separator: " ", omittingEmptySubsequences: true)
-        
-        guard parts.count >= 2 else { return nil }
-        
-        let byteString = parts[0].replacingOccurrences(of: ",", with: "")
-        guard let bytes = Int64(byteString) else { return nil }
-        
-        let isCompleted = parts[1] == "100%"
-        return (bytes, isCompleted)
-    }
-
-    private final class ProgressState: @unchecked Sendable {
-        private let lock = NSLock()
-        private var completedBytes: Int64 = 0
-        private var currentFileBytes: Int64 = 0
-        
-        func update(bytes: Int64, isCompleted: Bool) -> Int64 {
-            lock.lock()
-            defer { lock.unlock() }
-            if isCompleted {
-                completedBytes += bytes
-                currentFileBytes = 0
-            } else {
-                currentFileBytes = bytes
-            }
-            return completedBytes + currentFileBytes
-        }
+    /// Parses the `to-chk=REMAINING/TOTAL` token from a rsync --progress line.
+    /// Returns fraction of queue COMPLETED = (total - remaining) / total.
+    /// This is immune to --checksum false-100% emissions.
+    private nonisolated func parseToCheckFraction(from line: String) -> Double? {
+        // Look for pattern: to-chk=X/Y  or  ir-chk=X/Y
+        guard let range = line.range(of: #"(?:to-chk|ir-chk)=([0-9]+)/([0-9]+)"#,
+                                      options: .regularExpression) else { return nil }
+        let token = String(line[range])
+        // token = "to-chk=3/16"
+        let parts = token.split(separator: "=").last?.split(separator: "/")
+        guard let remainingStr = parts?.first, let totalStr = parts?.last,
+              let remaining = Double(remainingStr), let total = Double(totalStr),
+              total > 0 else { return nil }
+        // Fraction completed (clamped to [0, 0.99] during active transfer)
+        return min(0.99, max(0.0, (total - remaining) / total))
     }
 
     private func runRsync(
         arguments: [String],
         onOutput: @escaping @Sendable (String) -> Void,
-        onProgress: @escaping @Sendable (Int64) -> Void
+        onProgress: @escaping @Sendable (Double) -> Void
     ) async -> Bool {
         await withCheckedContinuation { continuation in
             let process = Process()
@@ -231,34 +210,30 @@ actor SyncEngine {
             process.standardError  = errPipe
 
             self.currentProcess = process
-            
-            let pState = ProgressState()
 
-            // Stream stdout — parse progress, filter noisy lines
+            // Stream stdout — parse to-chk=X/Y fraction, filter noisy lines
             outPipe.fileHandleForReading.readabilityHandler = { @Sendable [self] handle in
                 let data = handle.availableData
                 guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-                
+
                 let lines = text.components(separatedBy: "\n")
-                
-                // Track highest byte count in this chunk
-                var maxBytes: Int64? = nil
-                
+                var bestFraction: Double? = nil
+
                 let filtered = lines.filter { line in
-                    // If it's a progress line, try parsing the transferred bytes
                     if !self.shouldShow(line) {
-                        if let parsed = self.parseProgressBytes(from: line) {
-                            let total = pState.update(bytes: parsed.bytes, isCompleted: parsed.isCompleted)
-                            maxBytes = max(maxBytes ?? 0, total)
+                        // Parse the to-chk=X/Y fraction from progress lines
+                        if let f = self.parseToCheckFraction(from: line) {
+                            // Keep the highest fraction seen in this chunk (most progressed)
+                            bestFraction = max(bestFraction ?? 0, f)
                         }
-                        return false // Filter it out of the text log
+                        return false
                     }
                     return true
                 }
                 .joined(separator: "\n")
-                
-                if let bytes = maxBytes {
-                    onProgress(bytes)
+
+                if let f = bestFraction {
+                    onProgress(f)
                 }
 
                 if !filtered.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -271,17 +246,13 @@ actor SyncEngine {
                 let data = handle.availableData
                 guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    onOutput("⚠ " + text)
-                }
+                if !trimmed.isEmpty { onOutput("⚠ " + text) }
             }
 
             process.terminationHandler = { @Sendable p in
                 outPipe.fileHandleForReading.readabilityHandler = nil
                 errPipe.fileHandleForReading.readabilityHandler = nil
                 Task { await self.clearProcess() }
-                // Exit 0 = success; exit 23/24 = partial (some files could not be sent)
-                // We treat exit 23 as a non-fatal partial success
                 let status = p.terminationStatus
                 continuation.resume(returning: status == 0 || status == 23)
             }
