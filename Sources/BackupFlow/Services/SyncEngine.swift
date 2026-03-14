@@ -156,11 +156,21 @@ actor SyncEngine {
         return result
     }
 
-    /// Immediately terminates all running rsync processes.
-    func terminateAllProcesses() {
+    /// Immediately terminates all running rsync processes, with a SIGKILL fallback.
+    func forceStopAll() {
         for process in activeProcesses {
             if process.isRunning {
+                let pid = process.processIdentifier
                 process.terminate()
+                
+                // Fallback: forcefully kill after 1 second if still running
+                Task.detached {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    // kill(pid, 0) == 0 means process still exists
+                    if kill(pid, 0) == 0 {
+                        kill(pid, SIGKILL)
+                    }
+                }
             }
         }
         activeProcesses.removeAll()
@@ -168,7 +178,7 @@ actor SyncEngine {
 
     /// Aborts current sync entirely.
     func abort() {
-        terminateAllProcesses()
+        forceStopAll()
     }
 
     // MARK: - Private

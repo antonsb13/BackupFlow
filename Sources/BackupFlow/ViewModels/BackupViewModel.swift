@@ -31,7 +31,7 @@ final class BackupViewModel: ObservableObject {
     @Published var isMuted: Bool = false
     @Published var alertMessage: String? = nil
     @Published var useChecksum: Bool = false
-    @Published var isAborting: Bool = false
+    @Published var isSyncCancelled: Bool = false
 
     // Global Progress State
     @Published var globalProgress: Double = 0.0
@@ -212,22 +212,32 @@ final class BackupViewModel: ObservableObject {
             if mStarted { mURL.stopAccessingSecurityScopedResource() }
         }
         
-        isAborting = false
+        isSyncCancelled = false
         
         // 1. Calculate Target Bytes strictly before processing — mark rows as .calculating
         log("Calculating transfer sizes...\n")
         var queueTotalBytes: Int64 = 0
         for i in 0..<snapshot.count {
+            if isSyncCancelled { return }
             setStatus(snapshot[i].id, .calculating)  // Row shows "Calculating..."
             let size = await engine.calculateTransferSize(
                 from: mURL.appendingPathComponent(snapshot[i].relativePath),
                 to: sURL.appendingPathComponent(snapshot[i].relativePath),
                 useChecksum: checksum
             )
-            if isAborting { return }
+            if isSyncCancelled { return }
             snapshot[i].targetBytes = max(1, size)
             queueTotalBytes += size
+            
+            // Revert state to prevent "Calculating..." getting stuck on waiting rows
+            if let main = mainDriveURL, SyncHistoryManager.shared.date(for: main.appendingPathComponent(snapshot[i].relativePath).path) != nil {
+                setStatus(snapshot[i].id, .success)
+            } else {
+                setStatus(snapshot[i].id, .idle)
+            }
         }
+        
+        if isSyncCancelled { return }
         
         // Add root sweep dry run
         let rootSweepSize = await engine.calculateTransferSize(from: mURL, to: sURL, useChecksum: checksum)
@@ -260,7 +270,7 @@ final class BackupViewModel: ObservableObject {
                 }
             }
 
-            if isAborting { break }
+            if isSyncCancelled { return }
 
             if ok {
                 let absPath = mURL.appendingPathComponent(task.relativePath).path
@@ -273,7 +283,7 @@ final class BackupViewModel: ObservableObject {
             if !ok { anyFailure = true }
         }
         
-        if isAborting { return }
+        if isSyncCancelled { return }
 
         // 3. Final sweep — counts as the last task
         currentTaskIndex = totalTasksCount
@@ -310,21 +320,32 @@ final class BackupViewModel: ObservableObject {
             if mStarted { mURL.stopAccessingSecurityScopedResource() }
         }
         
-        isAborting = false
+        isSyncCancelled = false
         
         // Begin calculating sizes — mark each row as calculating
         log("Calculating transfer sizes...\n")
         var queueTotalBytes: Int64 = 0
         for i in 0..<snapshot.count {
+            if isSyncCancelled { return }
             setStatus(snapshot[i].id, .calculating)  // Row shows "Calculating..."
             let size = await engine.calculateTransferSize(
                 from: mURL.appendingPathComponent(snapshot[i].relativePath),
                 to: sURL.appendingPathComponent(snapshot[i].relativePath),
                 useChecksum: checksum
             )
+            if isSyncCancelled { return }
             snapshot[i].targetBytes = max(1, size)
             queueTotalBytes += size
+            
+            // Revert state to prevent cascading "Calculating..." lock
+            if let main = mainDriveURL, SyncHistoryManager.shared.date(for: main.appendingPathComponent(snapshot[i].relativePath).path) != nil {
+                setStatus(snapshot[i].id, .success)
+            } else {
+                setStatus(snapshot[i].id, .idle)
+            }
         }
+        
+        if isSyncCancelled { return }
         
         self.tasks = snapshot
         globalProgress = 0.0  // Strict 0 at start of transfer phase
@@ -334,6 +355,7 @@ final class BackupViewModel: ObservableObject {
         let activeStatus: SyncStatus = checksum ? .verifying : .syncing
 
         for (i, task) in snapshot.enumerated() {
+            if isSyncCancelled { return }
             currentTaskIndex = i + 1
             setStatus(task.id, activeStatus)  // Row transitions to Syncing / Verifying
             log("\n▶ [\(i + 1)/\(snapshot.count)] '\(task.folderName)' (\(task.relativePath))\n")
@@ -363,7 +385,7 @@ final class BackupViewModel: ObservableObject {
             // Release in reverse order
             folderScopeURL?.stopAccessingSecurityScopedResource()
 
-            if isAborting { break }
+            if isSyncCancelled { return }
 
             // Record sync date by absolute path (cross-mode persistence)
             if ok {
@@ -377,7 +399,7 @@ final class BackupViewModel: ObservableObject {
             if !ok { anyFailure = true }
         }
         
-        if isAborting { return }
+        if isSyncCancelled { return }
 
         globalProgress = 1.0
         saveTasks()
@@ -386,24 +408,29 @@ final class BackupViewModel: ObservableObject {
 
     func abortSync() {
         Task {
-            isAborting = true
+            isSyncCancelled = true
             let wasCalculating = (syncState == .calculating || syncState == .idle)
-            await engine.abort()
+            await engine.forceStopAll()
             
             if wasCalculating {
-                // Safe to revert — nothing transferred yet
+                // Return actively calculating tasks to original state
                 for i in 0..<tasks.count {
-                    if let main = mainDriveURL, SyncHistoryManager.shared.date(for: main.appendingPathComponent(tasks[i].relativePath).path) != nil {
-                        setStatus(tasks[i].id, .success)
-                    } else {
-                        setStatus(tasks[i].id, .idle)
+                    if tasks[i].status == .calculating {
+                        if let main = mainDriveURL, SyncHistoryManager.shared.date(for: main.appendingPathComponent(tasks[i].relativePath).path) != nil {
+                            setStatus(tasks[i].id, .success)
+                        } else {
+                            setStatus(tasks[i].id, .idle)
+                        }
                     }
                 }
             } else {
-                // Aborted mid-transfer — leave aborted warning
+                // Aborted mid-transfer — only mark the actively syncing tasks as aborted
                 for i in 0..<tasks.count {
-                    if tasks[i].status == .syncing || tasks[i].status == .verifying || tasks[i].status == .calculating {
+                    if tasks[i].status == .syncing || tasks[i].status == .verifying {
                         setStatus(tasks[i].id, .aborted)
+                    } else if tasks[i].status == .calculating {
+                        // Edge case fallback
+                        setStatus(tasks[i].id, .idle)
                     }
                 }
             }
@@ -419,7 +446,7 @@ final class BackupViewModel: ObservableObject {
     nonisolated func terminateOnExit() {
         let sema = DispatchSemaphore(value: 0)
         Task.detached {
-            await self.engine.terminateAllProcesses()
+            await self.engine.forceStopAll()
             sema.signal()
         }
         _ = sema.wait(timeout: .now() + 1.5)
