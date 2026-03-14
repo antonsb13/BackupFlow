@@ -61,10 +61,11 @@ final class BackupViewModel: ObservableObject {
     var statusText: String {
         if isSyncing {
             let pct = Int(globalProgress * 100)
+            let actionText = useChecksum ? "Verifying" : "Syncing"
             if totalTasksCount > 1 {
-                return "Syncing \(currentTaskIndex) of \(totalTasksCount) (\(pct)%)"
+                return "\(actionText) \(currentTaskIndex) of \(totalTasksCount) (\(pct)%)"
             } else {
-                return "Syncing (\(pct)%)"
+                return "\(actionText) (\(pct)%)"
             }
         }
         if mainDriveURL == nil || secondaryDriveURL == nil { return "Not configured" }
@@ -249,7 +250,7 @@ final class BackupViewModel: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self = self else { return }
                 let progress = Double(queueTransferredBytes + bytesTransferred) / Double(max(1, queueTotalBytes))
-                self.globalProgress = min(1.0, progress)
+                self.globalProgress = min(0.99, max(0.0, progress))
             }
         }
         
@@ -454,10 +455,11 @@ final class BackupViewModel: ObservableObject {
         
         let target = tasks[index].targetBytes
         let folderProgress = Double(bytesTransferred) / Double(target)
-        tasks[index].progress = min(1.0, max(0.0, folderProgress))
+        // Clamp to 99% while running. 100% is set formally upon termination.
+        tasks[index].progress = min(0.99, max(0.0, folderProgress))
         
         let global = Double(queueTransferredBytes + bytesTransferred) / Double(queueTotalBytes)
-        globalProgress = min(1.0, max(0.0, global))
+        globalProgress = min(0.99, max(0.0, global))
     }
 
     private func setStatus(_ id: UUID, _ status: SyncStatus, date: Date? = nil) {
