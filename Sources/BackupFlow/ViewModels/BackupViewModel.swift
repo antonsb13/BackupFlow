@@ -14,8 +14,12 @@ final class BackupViewModel: ObservableObject {
 
     // MARK: - Published State
 
-    @Published var mainDriveURL: URL?
-    @Published var secondaryDriveURL: URL?
+    @Published var mainDriveURL: URL? {
+        didSet { handleDriveAvailabilityChange() }
+    }
+    @Published var secondaryDriveURL: URL? {
+        didSet { handleDriveAvailabilityChange() }
+    }
     @Published var syncEntireDrive: Bool = false
     @Published var tasks: [BackupTask] = []
     @Published var selectedTaskIDs: Set<UUID> = []
@@ -535,8 +539,17 @@ final class BackupViewModel: ObservableObject {
         if let data = UserDefaults.standard.data(forKey: Keys.secondaryBookmark),
            let url  = BookmarkManager.resolveBookmark(data) { secondaryDriveURL = url }
 
-        if let data    = UserDefaults.standard.data(forKey: Keys.tasks),
-           let decoded = try? JSONDecoder().decode([BackupTask].self, from: data) {
+        if let data    = UserDefaults.standard.data(forKey: Keys.tasks) {
+            loadTasksFromDefaults(data: data)
+        }
+
+        isMuted = UserDefaults.standard.bool(forKey: Keys.isMuted)
+        useChecksum = UserDefaults.standard.bool(forKey: Keys.useChecksum)
+    }
+    
+    // Safely loads the persistent task configuration into the active UI state
+    private func loadTasksFromDefaults(data: Data) {
+        if let decoded = try? JSONDecoder().decode([BackupTask].self, from: data) {
             tasks = decoded.map {
                 var t = $0
                 // Reset UI state that shouldn't persist across launches
@@ -558,11 +571,7 @@ final class BackupViewModel: ObservableObject {
                 return t
             }
         }
-
-        isMuted = UserDefaults.standard.bool(forKey: Keys.isMuted)
-        useChecksum = UserDefaults.standard.bool(forKey: Keys.useChecksum)
     }
-
     func saveTasks() {
         if let encoded = try? JSONEncoder().encode(tasks) {
             UserDefaults.standard.set(encoded, forKey: Keys.tasks)
@@ -597,6 +606,23 @@ final class BackupViewModel: ObservableObject {
     }
 
     // MARK: - Disk Availability
+
+    private func handleDriveAvailabilityChange() {
+        if mainDriveURL == nil || secondaryDriveURL == nil {
+            // UI Cleanup: Wipe the active memory array so the UI renders the Empty State
+            // Do NOT call saveTasks() here, we want to retain the UserDefaults configuration.
+            tasks = []
+        } else {
+            // Both disks are valid, reload appropriate context
+            if syncEntireDrive {
+                refreshFullDiskTasks()
+            } else {
+                if let data = UserDefaults.standard.data(forKey: Keys.tasks) {
+                    loadTasksFromDefaults(data: data)
+                }
+            }
+        }
+    }
 
     /// Checks on launch whether the persisted disk paths still exist.
     /// Clears URLs and task list if paths are unreachable to prevent ghost syncs.

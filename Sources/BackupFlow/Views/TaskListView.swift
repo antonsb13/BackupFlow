@@ -6,12 +6,15 @@ struct TaskListView: View {
     var body: some View {
         Group {
             if vm.tasks.isEmpty {
-                if vm.syncEntireDrive {
-                    if vm.mainDriveURL == nil {
-                        emptyStatePlaceholder(icon: "internaldrive", title: "Select Main Disk", desc: "Choose a Root Volume to scan folders.")
-                    } else {
-                        emptyStatePlaceholder(icon: "magnifyingglass", title: "Scanning...", desc: "Reading top-level directories.")
-                    }
+                if vm.mainDriveURL == nil || vm.secondaryDriveURL == nil {
+                    // Both modes show this if disks are missing
+                    emptyStatePlaceholder(
+                        icon: "externaldrive.fill.badge.xmark",
+                        title: "Disks Required",
+                        desc: "Please select both the Main and Backup disks to view folders."
+                    )
+                } else if vm.syncEntireDrive {
+                    emptyStatePlaceholder(icon: "magnifyingglass", title: "Scanning...", desc: "Reading top-level directories.")
                 } else {
                     folderEmptyState
                 }
@@ -173,9 +176,7 @@ struct TaskListView: View {
             VStack(spacing: 12) {
                 Text("Add Backup Folders")
                     .font(.title2.bold())
-                Text(vm.mainDriveURL == nil
-                     ? "Select a Main Disk first."
-                     : "Click the + icon to choose specific folders to mirror.")
+                Text("Click the + icon to choose specific folders to mirror.")
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
