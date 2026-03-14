@@ -87,3 +87,19 @@ iOSInjectionProject/
 
 # Mac OS DS Store
 .DS_Store
+Network Trash Folder
+Temporary Items
+
+# Xcode extensions
+*.xcuserstate
+*.xcuserdatad
+
+# Swift Package Manager overrides
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+
+# App Specific Testing
+*.json
+*.plist
+!Info.plist
+!Package.swift
+!project.pbxproj
