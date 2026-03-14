@@ -1,4 +1,7 @@
 <h1 align="center">BackupFlow</h1>
+<p align="center">
+  <img src="Resources/screenshot.png" alt="BackupFlow Main Screen" width="600">
+</p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-14.0+-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 14.0+">
