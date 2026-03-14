@@ -211,10 +211,11 @@ final class BackupViewModel: ObservableObject {
             if mStarted { mURL.stopAccessingSecurityScopedResource() }
         }
         
-        // 1. Calculate Target Bytes strictly before processing
+        // 1. Calculate Target Bytes strictly before processing — mark rows as .calculating
         log("Calculating transfer sizes...\n")
         var queueTotalBytes: Int64 = 0
         for i in 0..<snapshot.count {
+            setStatus(snapshot[i].id, .calculating)  // Row shows "Calculating..."
             let size = await engine.calculateTransferSize(
                 from: mURL.appendingPathComponent(snapshot[i].relativePath),
                 to: sURL.appendingPathComponent(snapshot[i].relativePath),
@@ -229,17 +230,17 @@ final class BackupViewModel: ObservableObject {
         queueTotalBytes += rootSweepSize
         
         self.tasks = snapshot
-        globalProgress = 0.0 // reset any previous completion state
+        globalProgress = 0.0 // Strict 0 at start of transfer phase
         syncState = .transferring
 
         var completedTasks = 0
         totalTasksCount = snapshot.count + 1
 
         // 2. Sync each top-level folder
+        let activeStatus: SyncStatus = checksum ? .verifying : .syncing
         for (i, task) in snapshot.enumerated() {
             currentTaskIndex = i + 1
-            setStatus(task.id, .syncing)
-            log("\n▶ [\(i + 1)/\(totalTasksCount)] '\(task.folderName)'\n")
+            setStatus(task.id, activeStatus)  // Row transitions to Syncing / Verifying
 
             let ok = await engine.syncFolder(
                 relativePath: task.relativePath,
@@ -301,9 +302,11 @@ final class BackupViewModel: ObservableObject {
             if mStarted { mURL.stopAccessingSecurityScopedResource() }
         }
         
+        // Begin calculating sizes — mark each row as calculating
         log("Calculating transfer sizes...\n")
         var queueTotalBytes: Int64 = 0
         for i in 0..<snapshot.count {
+            setStatus(snapshot[i].id, .calculating)  // Row shows "Calculating..."
             let size = await engine.calculateTransferSize(
                 from: mURL.appendingPathComponent(snapshot[i].relativePath),
                 to: sURL.appendingPathComponent(snapshot[i].relativePath),
@@ -314,14 +317,15 @@ final class BackupViewModel: ObservableObject {
         }
         
         self.tasks = snapshot
-        globalProgress = 0.0
+        globalProgress = 0.0  // Strict 0 at start of transfer phase
         syncState = .transferring
         
         var completedTasks = 0
+        let activeStatus: SyncStatus = checksum ? .verifying : .syncing
 
         for (i, task) in snapshot.enumerated() {
             currentTaskIndex = i + 1
-            setStatus(task.id, .syncing)
+            setStatus(task.id, activeStatus)  // Row transitions to Syncing / Verifying
             log("\n▶ [\(i + 1)/\(snapshot.count)] '\(task.folderName)' (\(task.relativePath))\n")
 
             // Also resolve the folder's own bookmark for maximum sandbox compatibility

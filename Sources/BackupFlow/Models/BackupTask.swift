@@ -2,11 +2,13 @@ import Foundation
 
 // MARK: - Sync Status
 
-enum SyncStatus: String,Codable, Equatable {
-    case idle    = "Idle"
-    case syncing = "Syncing"
-    case success = "Synced"
-    case failed  = "Failed"
+enum SyncStatus: String, Codable, Equatable {
+    case idle       = "Idle"
+    case calculating = "Calculating..."
+    case syncing    = "Syncing"
+    case verifying  = "Verifying"
+    case success    = "Synced"
+    case failed     = "Failed"
 }
 
 // MARK: - Backup Task
