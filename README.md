@@ -30,7 +30,7 @@ Unlike bulky cloud clients or complex terminal scripts, BackupFlow lives quietly
 - **Granular Progress:** Real-time progress bars for *each* folder, plus a global progress ring. Driven by accurate `rsync` byte-transfer parsing.
 - **Intelligent Sandboxing:** Strict adherence to macOS App Sandbox. Uses Security-Scoped Bookmarks to maintain read/write access to external drives even across app restarts and background cycles.
 - **Metadata Filtering:** Automatically excludes annoying macOS system metadata (`.DS_Store`, `.Spotlight-V100`, `.Trashes`) to prevent "Operation not permitted" loops and keep the backup clean.
-- **Safe Drive Detection:** Never writes blindly. The app verifies that the destination UUID/Path is actually mounted before starting a scheduled sync, preventing false positives or errors.
+- **Safe Drive Detection:** Never writes blindly. The app verifies that the destination UUID/Path is actually mounted before starting a scheduled sync, triggering a native UI alert if a drive is missing.
 
 ## 🛠 How It Works Under the Hood
 

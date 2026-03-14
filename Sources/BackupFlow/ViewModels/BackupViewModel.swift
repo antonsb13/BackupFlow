@@ -16,6 +16,7 @@ final class BackupViewModel: ObservableObject {
     @Published var isSyncing: Bool = false
     @Published var showAbortConfirm: Bool = false
     @Published var isMuted: Bool = false
+    @Published var alertMessage: String? = nil
 
     // Global Progress State
     @Published var globalProgress: Double = 0.0
@@ -145,7 +146,9 @@ final class BackupViewModel: ObservableObject {
         guard !isSyncing else { return }
 
         if !isVolumeMounted(mainURL) || !isVolumeMounted(secondaryURL) {
-            log("🛑 Disk Disconnected. Ensure both disks are mounted.\n")
+            let msg = "Disk Disconnected. Ensure both disks are mounted."
+            log("🛑 \(msg)\n")
+            alertMessage = msg
             playSound(.failure)
             return
         }

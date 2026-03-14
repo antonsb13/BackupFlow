@@ -63,6 +63,18 @@ struct ContentView: View {
             ScheduleSettingsView()
                 .environmentObject(vm)
         }
+        .alert(
+            "Sync Error",
+            isPresented: Binding(
+                get: { vm.alertMessage != nil },
+                set: { if !$0 { vm.alertMessage = nil } }
+            ),
+            presenting: vm.alertMessage
+        ) { _ in
+            Button("OK", role: .cancel) { }
+        } message: { msg in
+            Text(msg)
+        }
         .frame(minWidth: 700, minHeight: 450)
     }
 }
