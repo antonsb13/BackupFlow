@@ -3,7 +3,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-14.0+-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 14.0+">
   <img src="https://img.shields.io/badge/Swift-5.9+-F05138?style=for-the-badge&logo=swift&logoColor=white" alt="Swift 5.9+">
-  <img src="https://img.shields.io/badge/Version-1.3.0-brightgreen?style=for-the-badge" alt="Version 1.3.0">
+  <img src="https://img.shields.io/badge/Version-1.4.0-brightgreen?style=for-the-badge" alt="Version 1.4.0">
   <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License MIT">
 </p>
 
@@ -22,7 +22,7 @@ Unlike bulky cloud clients or complex terminal scripts, BackupFlow lives quietly
 
 ---
 
-## ✨ Features (v1.3.0)
+## ✨ Features (v1.4.0)
 
 ### Core
 - **📁 Custom Folders** — Hand-pick specific directories to back up with per-folder progress bars.
@@ -30,7 +30,7 @@ Unlike bulky cloud clients or complex terminal scripts, BackupFlow lives quietly
 - **🔄 True Mirroring** — Files deleted on the source are automatically removed from the backup, preventing stale data accumulation.
 - **⏱ Smart Scheduling** — Background timer supports intervals from 15 minutes to a week. Syncs silently without opening a window.
 
-### Pro Features (v1.3.0)
+### Pro Features (v1.4.0)
 - **🔬 Deep Checksum Verification** — Toggle on to compare every file's SHA1 hash, not just size/date. Catches corruption that timestamps miss. Status badge updates to **"Verifying"** during this phase.
 - **📊 Calibrated Progress (All 4 Modes)** — Progress rings and row bars are driven by the `to-chk=X/Y` rsync queue position, which is immune to checksum false-completions.
 - **🔒 Strict Phase Separation** — Three distinct sync states:
@@ -41,6 +41,7 @@ Unlike bulky cloud clients or complex terminal scripts, BackupFlow lives quietly
 | Active transfer | `Syncing` 🔵 | Progressing (0.01 – 0.99) |
 | Checksum transfer | `Verifying` 🟠 | Progressing (0.01 – 0.99) |
 | Complete | `Synced` 🟢 | 100% |
+| Cancelled | `Aborted` 🟠 | Hidden |
 
 - **🔌 Smart Disk Detection** — 5-second watchdog timer + `NSWorkspace` mount/unmount notifications. Folder list clears immediately when a disk is ejected; restores automatically on reconnect.
 
@@ -112,4 +113,4 @@ BackupFlow collects **zero** user data. See [PRIVACY.md](PRIVACY.md) for the ful
 MIT License — see [LICENSE](LICENSE) for details.
 
 ---
-*Built with ❤️ for macOS. v1.3.0 — March 2026.*
+*Built with ❤️ for macOS. v1.4.0 — March 2026.*
