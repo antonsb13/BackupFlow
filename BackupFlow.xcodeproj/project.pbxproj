@@ -35,8 +35,8 @@
 		AA100011 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AA100012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AA100013 /* BackupFlow.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = BackupFlow.entitlements; path = ../../BackupFlow.entitlements; sourceTree = "<group>"; };
-		AA200001 /* BackupFlow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BackupFlow.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA100014 /* SyncHistoryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncHistoryManager.swift; sourceTree = "<group>"; };
+		AA200001 /* BackupFlow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BackupFlow.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
