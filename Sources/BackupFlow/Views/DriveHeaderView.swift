@@ -41,6 +41,10 @@ struct DriveHeaderView: View {
 
                 // Circular Sync/Abort Button
                 SyncButton()
+                
+                Spacer().frame(height: 1)
+                
+                ChecksumToggleButton()
             }
         }
         .padding(.horizontal, 20)
@@ -166,6 +170,46 @@ private struct SyncButton: View {
         .disabled(!vm.isSyncing && (vm.mainDriveURL == nil || vm.secondaryDriveURL == nil))
         .contentShape(Circle())
         .onHover { isHovered = $0 }
+    }
+}
+
+// MARK: - Checksum Toggle Button
+
+private struct ChecksumToggleButton: View {
+    @EnvironmentObject var vm: BackupViewModel
+    @State private var isHovered = false
+
+    var body: some View {
+        Button {
+            guard !vm.isSyncing else { return }
+            vm.useChecksum.toggle()
+            vm.saveTasks()
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: vm.useChecksum ? "checkmark.shield.fill" : "shield")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("Checksum")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundStyle(vm.useChecksum ? .white : (isHovered ? .primary : .secondary))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(
+                Capsule()
+                    .fill(vm.useChecksum
+                          ? Color.blue
+                          : (isHovered && !vm.isSyncing ? Color.secondary.opacity(0.12) : Color.clear))
+                    .shadow(color: vm.useChecksum ? .blue.opacity(0.35) : .clear,
+                            radius: 3, y: 1)
+            )
+            .animation(.easeInOut(duration: 0.15), value: vm.useChecksum)
+            .animation(.easeInOut(duration: 0.1), value: isHovered)
+        }
+        .buttonStyle(.plain)
+        .disabled(vm.isSyncing)
+        .opacity(vm.isSyncing ? 0.4 : 1.0)
+        .onHover { isHovered = $0 }
+        .help("Deep Checksum: Compares file contents, not just dates. Highly accurate but slower.")
     }
 }
 

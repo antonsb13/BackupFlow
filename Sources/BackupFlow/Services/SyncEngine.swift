@@ -41,11 +41,12 @@ actor SyncEngine {
     // MARK: - Public API
 
     /// Performs a dry-run to calculate exactly how many bytes will be transferred.
-    func calculateTransferSize(from mainURL: URL, to secondaryURL: URL) async -> Int64 {
+    func calculateTransferSize(from mainURL: URL, to secondaryURL: URL, useChecksum: Bool) async -> Int64 {
         let src = ensureTrailingSlash(mainURL.path)
         let dst = ensureTrailingSlash(secondaryURL.path)
         
         var args = Self.baseFlags.filter { $0 != "--progress" }
+        if useChecksum { args.append("--checksum") }
         args.append(contentsOf: ["-n", "--stats", src, dst])
         
         let _keepAlive = [mainURL, secondaryURL]
@@ -107,12 +108,15 @@ actor SyncEngine {
     func syncEntireDrive(
         from mainURL: URL,
         to secondaryURL: URL,
+        useChecksum: Bool,
         onOutput: @escaping @Sendable (String) -> Void,
         onProgress: @escaping @Sendable (Int64) -> Void = { _ in }
     ) async -> Bool {
         let src = ensureTrailingSlash(mainURL.path)
         let dst = ensureTrailingSlash(secondaryURL.path)
-        let args = Self.baseFlags + [src, dst]
+        var args = Self.baseFlags
+        if useChecksum { args.append("--checksum") }
+        args.append(contentsOf: [src, dst])
         
         let _keepAlive = [mainURL, secondaryURL]
         let result = await runRsync(arguments: args, onOutput: onOutput, onProgress: onProgress)
@@ -125,6 +129,7 @@ actor SyncEngine {
         relativePath: String,
         mainRoot: URL,
         secondaryRoot: URL,
+        useChecksum: Bool,
         onOutput: @escaping @Sendable (String) -> Void,
         onProgress: @escaping @Sendable (Int64) -> Void = { _ in }
     ) async -> Bool {
@@ -139,7 +144,9 @@ actor SyncEngine {
 
         let src = ensureTrailingSlash(srcURL.path)
         let dst = ensureTrailingSlash(dstURL.path)
-        let args = Self.baseFlags + [src, dst]
+        var args = Self.baseFlags
+        if useChecksum { args.append("--checksum") }
+        args.append(contentsOf: [src, dst])
 
         let _keepAlive = [mainRoot, secondaryRoot, srcURL]
         let result = await runRsync(arguments: args, onOutput: onOutput, onProgress: onProgress)

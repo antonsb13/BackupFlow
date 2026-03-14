@@ -17,6 +17,7 @@ final class BackupViewModel: ObservableObject {
     @Published var showAbortConfirm: Bool = false
     @Published var isMuted: Bool = false
     @Published var alertMessage: String? = nil
+    @Published var useChecksum: Bool = false
 
     // Global Progress State
     @Published var globalProgress: Double = 0.0
@@ -39,6 +40,7 @@ final class BackupViewModel: ObservableObject {
         static let syncMode          = "bf.syncEntireDrive"
         static let tasks             = "bf.tasks"
         static let isMuted           = "bf.isMuted"
+        static let useChecksum       = "bf.useChecksum"
     }
 
     // Pre-loaded sounds — prevents audio engine overload on rapid calls
@@ -164,13 +166,13 @@ final class BackupViewModel: ObservableObject {
 
     private func performSync(mainURL: URL, secondaryURL: URL) async {
         if syncEntireDrive {
-            await syncEntireDriveTo(main: mainURL, secondary: secondaryURL)
+            await syncEntireDriveTo(main: mainURL, secondary: secondaryURL, checksum: useChecksum)
         } else {
-            await syncSelectedFolders(main: mainURL, secondary: secondaryURL)
+            await syncSelectedFolders(main: mainURL, secondary: secondaryURL, checksum: useChecksum)
         }
     }
 
-    private func syncEntireDriveTo(main mURL: URL, secondary sURL: URL) async {
+    private func syncEntireDriveTo(main mURL: URL, secondary sURL: URL, checksum: Bool) async {
         log("▶ Full drive sync: \(mURL.path) → \(sURL.path)\n")
 
         var anyFailure = false
@@ -189,14 +191,15 @@ final class BackupViewModel: ObservableObject {
         for i in 0..<snapshot.count {
             let size = await engine.calculateTransferSize(
                 from: mURL.appendingPathComponent(snapshot[i].relativePath),
-                to: sURL.appendingPathComponent(snapshot[i].relativePath)
+                to: sURL.appendingPathComponent(snapshot[i].relativePath),
+                useChecksum: checksum
             )
             snapshot[i].targetBytes = max(1, size)
             queueTotalBytes += size
         }
         
         // Add root sweep dry run
-        let rootSweepSize = await engine.calculateTransferSize(from: mURL, to: sURL)
+        let rootSweepSize = await engine.calculateTransferSize(from: mURL, to: sURL, useChecksum: checksum)
         queueTotalBytes += rootSweepSize
         
         self.tasks = snapshot // Update UI context with targetBytes
@@ -214,7 +217,8 @@ final class BackupViewModel: ObservableObject {
             let ok = await engine.syncFolder(
                 relativePath: task.relativePath,
                 mainRoot:     mURL,
-                secondaryRoot: sURL
+                secondaryRoot: sURL,
+                useChecksum:  checksum
             ) { [weak self] text in
                 Task { @MainActor [weak self] in self?.log(text) }
             } onProgress: { [weak self, id = task.id] bytesTransferred in
@@ -239,7 +243,7 @@ final class BackupViewModel: ObservableObject {
         currentTaskIndex = totalTasksCount
         log("\n▶ [\(totalTasksCount)/\(totalTasksCount)] Sweeping root files...\n")
         
-        let sweepOk = await engine.syncEntireDrive(from: mURL, to: sURL) { [weak self] text in
+        let sweepOk = await engine.syncEntireDrive(from: mURL, to: sURL, useChecksum: checksum) { [weak self] text in
             Task { @MainActor [weak self] in self?.log(text) }
         } onProgress: { [weak self] bytesTransferred in
             Task { @MainActor [weak self] in
@@ -256,7 +260,7 @@ final class BackupViewModel: ObservableObject {
         playSound(sweepOk && !anyFailure ? .success : .failure)
     }
 
-    private func syncSelectedFolders(main mURL: URL, secondary sURL: URL) async {
+    private func syncSelectedFolders(main mURL: URL, secondary sURL: URL, checksum: Bool) async {
         var anyFailure = false
         var snapshot = tasks
 
@@ -274,7 +278,8 @@ final class BackupViewModel: ObservableObject {
         for i in 0..<snapshot.count {
             let size = await engine.calculateTransferSize(
                 from: mURL.appendingPathComponent(snapshot[i].relativePath),
-                to: sURL.appendingPathComponent(snapshot[i].relativePath)
+                to: sURL.appendingPathComponent(snapshot[i].relativePath),
+                useChecksum: checksum
             )
             snapshot[i].targetBytes = max(1, size)
             queueTotalBytes += size
@@ -300,7 +305,8 @@ final class BackupViewModel: ObservableObject {
             let ok = await engine.syncFolder(
                 relativePath: task.relativePath,
                 mainRoot:     mURL,
-                secondaryRoot: sURL
+                secondaryRoot: sURL,
+                useChecksum:  checksum
             ) { [weak self] text in
                 Task { @MainActor [weak self] in self?.log(text) }
             } onProgress: { [weak self, id = task.id] bytesTransferred in
@@ -531,6 +537,7 @@ final class BackupViewModel: ObservableObject {
         }
 
         isMuted = UserDefaults.standard.bool(forKey: Keys.isMuted)
+        useChecksum = UserDefaults.standard.bool(forKey: Keys.useChecksum)
     }
 
     func saveTasks() {
@@ -539,6 +546,7 @@ final class BackupViewModel: ObservableObject {
         }
         UserDefaults.standard.set(syncEntireDrive, forKey: Keys.syncMode)
         UserDefaults.standard.set(isMuted, forKey: Keys.isMuted)
+        UserDefaults.standard.set(useChecksum, forKey: Keys.useChecksum)
     }
 
     // MARK: - Schedule Timer
