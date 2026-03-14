@@ -131,6 +131,12 @@ private struct SyncButton: View {
 
                 // Global Progress Ring
                 if vm.isSyncing {
+                    // Track (always visible during calculateTransferSize dry runs)
+                    Circle()
+                        .stroke(Color.white.opacity(0.2), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                        .frame(width: 53, height: 53)
+                    
+                    // Active Progress
                     Circle()
                         .trim(from: 0, to: vm.globalProgress)
                         .stroke(Color.white.opacity(0.9), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))

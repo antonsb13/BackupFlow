@@ -171,20 +171,42 @@ final class BackupViewModel: ObservableObject {
         log("▶ Full drive sync: \(mURL.path) → \(sURL.path)\n")
 
         var anyFailure = false
-        let snapshot = tasks
+        var snapshot = tasks
         
-        // We add +1 to totalTasksCount for the final root directory sweep
-        totalTasksCount = snapshot.count + 1
-        globalProgress = 0.0
+        let mStarted = mURL.startAccessingSecurityScopedResource()
+        let sStarted = sURL.startAccessingSecurityScopedResource()
+        defer {
+            if sStarted { sURL.stopAccessingSecurityScopedResource() }
+            if mStarted { mURL.stopAccessingSecurityScopedResource() }
+        }
+        
+        // 1. Calculate Target Bytes strictly before processing
+        log("Calculating transfer sizes...\n")
+        var queueTotalBytes: Int64 = 0
+        for i in 0..<snapshot.count {
+            let size = await engine.calculateTransferSize(
+                from: mURL.appendingPathComponent(snapshot[i].relativePath),
+                to: sURL.appendingPathComponent(snapshot[i].relativePath)
+            )
+            snapshot[i].targetBytes = max(1, size)
+            queueTotalBytes += size
+        }
+        
+        // Add root sweep dry run
+        let rootSweepSize = await engine.calculateTransferSize(from: mURL, to: sURL)
+        queueTotalBytes += rootSweepSize
+        
+        self.tasks = snapshot // Update UI context with targetBytes
+        globalProgress = 0.001 // Tiny glow ring indicating calculation is done
 
-        // 1. Sync each top-level folder to get granular UI progress
+        var queueTransferredBytes: Int64 = 0
+        totalTasksCount = snapshot.count + 1
+
+        // 2. Sync each top-level folder
         for (i, task) in snapshot.enumerated() {
             currentTaskIndex = i + 1
             setStatus(task.id, .syncing)
             log("\n▶ [\(i + 1)/\(totalTasksCount)] '\(task.folderName)'\n")
-
-            let mStarted = mURL.startAccessingSecurityScopedResource()
-            let sStarted = sURL.startAccessingSecurityScopedResource()
 
             let ok = await engine.syncFolder(
                 relativePath: task.relativePath,
@@ -192,16 +214,17 @@ final class BackupViewModel: ObservableObject {
                 secondaryRoot: sURL
             ) { [weak self] text in
                 Task { @MainActor [weak self] in self?.log(text) }
-            } onProgress: { [weak self, id = task.id] p in
-                Task { @MainActor [weak self] in self?.updateTaskProgress(id, progress: p) }
+            } onProgress: { [weak self, id = task.id] bytesTransferred in
+                Task { @MainActor [weak self] in 
+                    guard let self = self else { return }
+                    self.updateTaskProgressBytes(id: id, bytesTransferred: bytesTransferred, queueTransferredBytes: queueTransferredBytes, queueTotalBytes: max(1, queueTotalBytes))
+                }
             }
-
-            if sStarted { sURL.stopAccessingSecurityScopedResource() }
-            if mStarted { mURL.stopAccessingSecurityScopedResource() }
 
             if ok {
                 let absPath = mURL.appendingPathComponent(task.relativePath).path
                 SyncHistoryManager.shared.record(absolutePath: absPath)
+                queueTransferredBytes += task.targetBytes 
             }
 
             setStatus(task.id, ok ? .success : .failed, date: ok ? Date() : nil)
@@ -209,27 +232,20 @@ final class BackupViewModel: ObservableObject {
             if !ok { anyFailure = true }
         }
 
-        // 2. Final sweep (catches files in the root directory like .pdf, .dmg)
+        // 3. Final sweep
         currentTaskIndex = totalTasksCount
         log("\n▶ [\(totalTasksCount)/\(totalTasksCount)] Sweeping root files...\n")
         
-        let mStarted = mURL.startAccessingSecurityScopedResource()
-        let sStarted = sURL.startAccessingSecurityScopedResource()
-
         let sweepOk = await engine.syncEntireDrive(from: mURL, to: sURL) { [weak self] text in
             Task { @MainActor [weak self] in self?.log(text) }
-        } onProgress: { [weak self] p in
+        } onProgress: { [weak self] bytesTransferred in
             Task { @MainActor [weak self] in
                 guard let self = self else { return }
-                let base = Double(max(0, self.totalTasksCount - 1)) / Double(self.totalTasksCount)
-                let current = p / Double(self.totalTasksCount)
-                self.globalProgress = min(1.0, base + current)
+                let progress = Double(queueTransferredBytes + bytesTransferred) / Double(max(1, queueTotalBytes))
+                self.globalProgress = min(1.0, progress)
             }
         }
         
-        if sStarted { sURL.stopAccessingSecurityScopedResource() }
-        if mStarted { mURL.stopAccessingSecurityScopedResource() }
-
         if sweepOk { SyncHistoryManager.shared.record(absolutePath: mURL.path) }
         
         globalProgress = 1.0
@@ -239,20 +255,36 @@ final class BackupViewModel: ObservableObject {
 
     private func syncSelectedFolders(main mURL: URL, secondary sURL: URL) async {
         var anyFailure = false
-        // Take a snapshot of tasks on MainActor before entering the loop
-        let snapshot = tasks
+        var snapshot = tasks
 
         totalTasksCount = snapshot.count
-        globalProgress = 0.0
+        
+        let mStarted = mURL.startAccessingSecurityScopedResource()
+        let sStarted = sURL.startAccessingSecurityScopedResource()
+        defer {
+            if sStarted { sURL.stopAccessingSecurityScopedResource() }
+            if mStarted { mURL.stopAccessingSecurityScopedResource() }
+        }
+        
+        log("Calculating transfer sizes...\n")
+        var queueTotalBytes: Int64 = 0
+        for i in 0..<snapshot.count {
+            let size = await engine.calculateTransferSize(
+                from: mURL.appendingPathComponent(snapshot[i].relativePath),
+                to: sURL.appendingPathComponent(snapshot[i].relativePath)
+            )
+            snapshot[i].targetBytes = max(1, size)
+            queueTotalBytes += size
+        }
+        
+        self.tasks = snapshot
+        globalProgress = 0.001
+        var queueTransferredBytes: Int64 = 0
 
         for (i, task) in snapshot.enumerated() {
             currentTaskIndex = i + 1
             setStatus(task.id, .syncing)
             log("\n▶ [\(i + 1)/\(snapshot.count)] '\(task.folderName)' (\(task.relativePath))\n")
-
-            // Open scopes — keep alive for entire rsync call
-            let mStarted = mURL.startAccessingSecurityScopedResource()
-            let sStarted = sURL.startAccessingSecurityScopedResource()
 
             // Also resolve the folder's own bookmark for maximum sandbox compatibility
             var folderScopeURL: URL? = nil
@@ -268,19 +300,21 @@ final class BackupViewModel: ObservableObject {
                 secondaryRoot: sURL
             ) { [weak self] text in
                 Task { @MainActor [weak self] in self?.log(text) }
-            } onProgress: { [weak self, id = task.id] p in
-                Task { @MainActor [weak self] in self?.updateTaskProgress(id, progress: p) }
+            } onProgress: { [weak self, id = task.id] bytesTransferred in
+                Task { @MainActor [weak self] in
+                    guard let self = self else { return }
+                    self.updateTaskProgressBytes(id: id, bytesTransferred: bytesTransferred, queueTransferredBytes: queueTransferredBytes, queueTotalBytes: max(1, queueTotalBytes))
+                }
             }
 
             // Release in reverse order
             folderScopeURL?.stopAccessingSecurityScopedResource()
-            if sStarted { sURL.stopAccessingSecurityScopedResource() }
-            if mStarted { mURL.stopAccessingSecurityScopedResource() }
 
             // Record sync date by absolute path (cross-mode persistence)
             if ok {
                 let absPath = mURL.appendingPathComponent(task.relativePath).path
                 SyncHistoryManager.shared.record(absolutePath: absPath)
+                queueTransferredBytes += task.targetBytes
             }
 
             setStatus(task.id, ok ? .success : .failed, date: ok ? Date() : nil)
@@ -288,6 +322,7 @@ final class BackupViewModel: ObservableObject {
             if !ok { anyFailure = true }
         }
 
+        globalProgress = 1.0
         saveTasks()
         playSound(anyFailure ? .failure : .success)
     }
@@ -405,13 +440,15 @@ final class BackupViewModel: ObservableObject {
 
     // MARK: - Task Status & Progress
 
-    private func updateTaskProgress(_ id: UUID, progress: Double) {
+    private func updateTaskProgressBytes(id: UUID, bytesTransferred: Int64, queueTransferredBytes: Int64, queueTotalBytes: Int64) {
         guard let index = tasks.firstIndex(where: { $0.id == id }) else { return }
-        tasks[index].progress = progress
         
-        let base = Double(max(0, currentTaskIndex - 1)) / Double(max(1, totalTasksCount))
-        let current = progress / Double(max(1, totalTasksCount))
-        globalProgress = min(1.0, base + current)
+        let target = tasks[index].targetBytes
+        let folderProgress = Double(bytesTransferred) / Double(target)
+        tasks[index].progress = min(1.0, max(0.0, folderProgress))
+        
+        let global = Double(queueTransferredBytes + bytesTransferred) / Double(queueTotalBytes)
+        globalProgress = min(1.0, max(0.0, global))
     }
 
     private func setStatus(_ id: UUID, _ status: SyncStatus, date: Date? = nil) {

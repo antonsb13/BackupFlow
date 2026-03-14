@@ -40,12 +40,75 @@ actor SyncEngine {
 
     // MARK: - Public API
 
+    /// Performs a dry-run to calculate exactly how many bytes will be transferred.
+    func calculateTransferSize(from mainURL: URL, to secondaryURL: URL) async -> Int64 {
+        let src = ensureTrailingSlash(mainURL.path)
+        let dst = ensureTrailingSlash(secondaryURL.path)
+        
+        var args = Self.baseFlags.filter { $0 != "--progress" }
+        args.append(contentsOf: ["-n", "--stats", src, dst])
+        
+        let _keepAlive = [mainURL, secondaryURL]
+        
+        final class OutputStorage: @unchecked Sendable {
+            private let lock = NSLock()
+            var data = Data()
+            func append(_ newData: Data) {
+                lock.lock()
+                defer { lock.unlock() }
+                data.append(newData)
+            }
+            func get() -> String? {
+                lock.lock()
+                defer { lock.unlock() }
+                return String(data: data, encoding: .utf8)
+            }
+        }
+        
+        return await withCheckedContinuation { continuation in
+            let process = Process()
+            let outPipe = Pipe()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/rsync")
+            process.arguments = args
+            process.standardOutput = outPipe
+            
+            let storage = OutputStorage()
+            outPipe.fileHandleForReading.readabilityHandler = { handle in
+                storage.append(handle.availableData)
+            }
+            
+            process.terminationHandler = { _ in
+                outPipe.fileHandleForReading.readabilityHandler = nil
+                _ = _keepAlive
+                
+                guard let text = storage.get() else {
+                    continuation.resume(returning: 0)
+                    return
+                }
+                
+                var total: Int64 = 0
+                for line in text.components(separatedBy: "\n") {
+                    if line.hasPrefix("Total transferred file size:") {
+                        let digits = line.filter { $0.isNumber }
+                        if let size = Int64(digits) {
+                            total = size
+                            break
+                        }
+                    }
+                }
+                continuation.resume(returning: total)
+            }
+            
+            do { try process.run() } catch { continuation.resume(returning: 0) }
+        }
+    }
+
     /// Mirrors the entire `mainURL` directory to `secondaryURL` using rsync --delete.
     func syncEntireDrive(
         from mainURL: URL,
         to secondaryURL: URL,
         onOutput: @escaping @Sendable (String) -> Void,
-        onProgress: @escaping @Sendable (Double) -> Void = { _ in }
+        onProgress: @escaping @Sendable (Int64) -> Void = { _ in }
     ) async -> Bool {
         let src = ensureTrailingSlash(mainURL.path)
         let dst = ensureTrailingSlash(secondaryURL.path)
@@ -63,7 +126,7 @@ actor SyncEngine {
         mainRoot: URL,
         secondaryRoot: URL,
         onOutput: @escaping @Sendable (String) -> Void,
-        onProgress: @escaping @Sendable (Double) -> Void = { _ in }
+        onProgress: @escaping @Sendable (Int64) -> Void = { _ in }
     ) async -> Bool {
         let srcURL = mainRoot.appendingPathComponent(relativePath)
         let dstURL = secondaryRoot.appendingPathComponent(relativePath)
@@ -112,28 +175,43 @@ actor SyncEngine {
         return true
     }
 
-    /// Parses global progress from an rsync progress line (e.g. " (xfer#1, to-check=123/456)"). Returns nil if not found.
-    private nonisolated func parseProgress(from line: String) -> Double? {
-        guard let range = line.range(of: "to-ch") else { return nil }
-        let sub = line[range.lowerBound...]
-        guard let eq = sub.firstIndex(of: "=") else { return nil }
-        let afterEq = sub[sub.index(after: eq)...]
-        guard let paren = afterEq.firstIndex(of: ")") else { return nil }
+    /// Parses bytes transferred from an rsync progress line (e.g. "      1,234,567  98%    ").
+    /// Returns (bytes: Int64, isCompleted: Bool) if successful, nil otherwise.
+    private nonisolated func parseProgressBytes(from line: String) -> (bytes: Int64, isCompleted: Bool)? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let parts = trimmed.split(separator: " ", omittingEmptySubsequences: true)
         
-        let slashSplit = afterEq[..<paren].split(separator: "/")
-        guard slashSplit.count == 2,
-              let left = Double(slashSplit[0]),
-              let right = Double(slashSplit[1]),
-              right > 0 else { return nil }
-              
-        // left is "files remaining", right is "total files"
-        return max(0.0, min(1.0, (right - left) / right))
+        guard parts.count >= 2 else { return nil }
+        
+        let byteString = parts[0].replacingOccurrences(of: ",", with: "")
+        guard let bytes = Int64(byteString) else { return nil }
+        
+        let isCompleted = parts[1] == "100%"
+        return (bytes, isCompleted)
+    }
+
+    private final class ProgressState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var completedBytes: Int64 = 0
+        private var currentFileBytes: Int64 = 0
+        
+        func update(bytes: Int64, isCompleted: Bool) -> Int64 {
+            lock.lock()
+            defer { lock.unlock() }
+            if isCompleted {
+                completedBytes += bytes
+                currentFileBytes = 0
+            } else {
+                currentFileBytes = bytes
+            }
+            return completedBytes + currentFileBytes
+        }
     }
 
     private func runRsync(
         arguments: [String],
         onOutput: @escaping @Sendable (String) -> Void,
-        onProgress: @escaping @Sendable (Double) -> Void
+        onProgress: @escaping @Sendable (Int64) -> Void
     ) async -> Bool {
         await withCheckedContinuation { continuation in
             let process = Process()
@@ -146,6 +224,8 @@ actor SyncEngine {
             process.standardError  = errPipe
 
             self.currentProcess = process
+            
+            let pState = ProgressState()
 
             // Stream stdout — parse progress, filter noisy lines
             outPipe.fileHandleForReading.readabilityHandler = { @Sendable [self] handle in
@@ -154,14 +234,15 @@ actor SyncEngine {
                 
                 let lines = text.components(separatedBy: "\n")
                 
-                // Track highest progress in this chunk
-                var maxProgress: Double? = nil
+                // Track highest byte count in this chunk
+                var maxBytes: Int64? = nil
                 
                 let filtered = lines.filter { line in
-                    // If it's a progress line, try parsing the percentage
+                    // If it's a progress line, try parsing the transferred bytes
                     if !self.shouldShow(line) {
-                        if let px = self.parseProgress(from: line) {
-                            maxProgress = max(maxProgress ?? 0, px)
+                        if let parsed = self.parseProgressBytes(from: line) {
+                            let total = pState.update(bytes: parsed.bytes, isCompleted: parsed.isCompleted)
+                            maxBytes = max(maxBytes ?? 0, total)
                         }
                         return false // Filter it out of the text log
                     }
@@ -169,8 +250,8 @@ actor SyncEngine {
                 }
                 .joined(separator: "\n")
                 
-                if let progress = maxProgress {
-                    onProgress(progress)
+                if let bytes = maxBytes {
+                    onProgress(bytes)
                 }
 
                 if !filtered.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

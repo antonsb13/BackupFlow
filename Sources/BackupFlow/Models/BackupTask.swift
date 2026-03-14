@@ -26,6 +26,7 @@ struct BackupTask: Identifiable, Codable, Equatable {
     var status: SyncStatus = .idle
     var progress: Double = 0.0 // 0.0 to 1.0
     var lastSyncDate: Date?
+    var targetBytes: Int64 = 1 // Prevent div/0 defaults
     
     // UI Metadata
     var sizeBytes: Int64?
