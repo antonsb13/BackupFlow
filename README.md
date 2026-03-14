@@ -28,7 +28,7 @@ Unlike bulky cloud clients or complex terminal scripts, BackupFlow lives quietly
 - **📁 Custom Folders** — Hand-pick specific directories to back up with per-folder progress bars.
 - **💽 Full Disk Mirror** — Create a 1:1 true mirror of an entire volume (`rsync --delete`).
 - **🔄 True Mirroring** — Files deleted on the source are automatically removed from the backup, preventing stale data accumulation.
-- **⏱ Smart Scheduling** — Background timer supports intervals from 15 minutes to 24 hours. Syncs silently without opening a window.
+- **⏱ Smart Scheduling** — Background timer supports intervals from 15 minutes to a week. Syncs silently without opening a window.
 
 ### Pro Features (v1.3.0)
 - **🔬 Deep Checksum Verification** — Toggle on to compare every file's SHA1 hash, not just size/date. Catches corruption that timestamps miss. Status badge updates to **"Verifying"** during this phase.
