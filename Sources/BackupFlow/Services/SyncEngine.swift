@@ -290,14 +290,12 @@ actor SyncEngine {
         let systemNoise = ["./", ".", ".DS_Store", ".localized", ".Spotlight-V100",
                            ".Trashes", ".DocumentRevisions-V100", ".fseventsd"]
         if systemNoise.contains(t) {
-            print("DEBUG: Filtering path [\(t)]")
             return false
         }
         // Drop lines containing system file patterns (e.g. nested paths)
         let noisePatterns = [".DS_Store", ".localized", ".Spotlight-V100",
                              ".Trashes", ".DocumentRevisions-V100", ".fseventsd"]
         for pattern in noisePatterns where t.contains(pattern) {
-            print("DEBUG: Filtering path [\(t)]")
             return false
         }
         

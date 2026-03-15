@@ -35,12 +35,14 @@ Unlike bulky cloud clients or complex terminal scripts, BackupFlow lives quietly
 
 ### Pro Features (v1.6.8)
 - **🛡️ Advanced Deletion Guard (v1.6.x)** — Intelligent pre-sync analysis with granular per-file confirmation to avert accidental data loss.
-- **✨ Smart UX** — Added "Apply to all" logic and a global safety toggle in the toolbar.
-- **🔍 Transparency** — Detailed deletion logging in the internal Log Console.
+- **✨ Smart Deletion Review** — Per-file confirmation modal before any file is removed from the backup, complete with an "Apply to all" toggle.
+- **🔬 System-Aware Filtering** — Automatically ignores macOS metadata (`.DS_Store`, `./`, etc.) to keep logs clean and relevant.
+- **⚙️ Legacy Compatibility** — Optimized engine that works seamlessly with macOS default rsync (v2.6.9).
+- **📊 Weighted Progress** — Accurate byte-based progress tracking for both individual folders and the global sync ring.
+- **🔍 Transparency** — Detailed deletion and sync logging in the internal Log Console.
 - **🔬 Deep Checksum Verification** — Toggle on to compare every file's SHA1 hash, not just size/date. Catches corruption that timestamps miss. Status badge updates to **"Verifying"** during this phase.
 - **🛡️ Rock-Solid Task Management** — Immediate termination of all background processes on abort or app exit (no zombie tasks).
 - **🛑 Safe Cancellation** — Intelligent sync loop that prevents cascading status changes after a manual stop.
-- **📊 Calibrated Progress (All 4 Modes)** — Progress rings and row bars are driven by the `to-chk=X/Y` rsync queue position, which is immune to checksum false-completions.
 - **🔒 Strict Phase Separation** — Three distinct sync states:
 
 | Phase | Status Badge | Ring |
