@@ -320,11 +320,11 @@ final class BackupViewModel: ObservableObject {
                 useChecksum:  checksum
             ) { [weak self] text in
                 Task { @MainActor [weak self] in self?.log(text) }
-            } onProgress: { [weak self, id = task.id, targetBytes = task.targetBytes, queueTotalBytes] bytesTransferred in
+            } onProgress: { [weak self, id = task.id, targetBytes = task.targetBytes, queueTotalBytes, activeIds = snapshot.map(\.id)] bytesTransferred in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     let fraction = Double(bytesTransferred) / Double(max(1, targetBytes))
-                    self.updateTaskProgressFraction(id: id, fraction: fraction, queueTotalBytes: queueTotalBytes)
+                    self.updateTaskProgressFraction(id: id, fraction: fraction, queueTotalBytes: queueTotalBytes, activeTaskIds: activeIds)
                 }
             }
 
