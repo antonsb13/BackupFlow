@@ -320,10 +320,10 @@ final class BackupViewModel: ObservableObject {
                 useChecksum:  checksum
             ) { [weak self] text in
                 Task { @MainActor [weak self] in self?.log(text) }
-            } onProgress: { [weak self, id = task.id] fraction in
+            } onProgress: { [weak self, id = task.id, queueTotalBytes] fraction in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    self.updateTaskProgressFraction(id: id, fraction: fraction, completedTasks: completedTasks, totalTasks: self.totalTasksCount)
+                    self.updateTaskProgressFraction(id: id, fraction: fraction, queueTotalBytes: queueTotalBytes)
                 }
             }
 
@@ -477,10 +477,10 @@ final class BackupViewModel: ObservableObject {
                 useChecksum:  checksum
             ) { [weak self] text in
                 Task { @MainActor [weak self] in self?.log(text) }
-            } onProgress: { [weak self, id = task.id] fraction in
+            } onProgress: { [weak self, id = task.id, queueTotalBytes] fraction in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    self.updateTaskProgressFraction(id: id, fraction: fraction, completedTasks: completedTasks, totalTasks: self.totalTasksCount)
+                    self.updateTaskProgressFraction(id: id, fraction: fraction, queueTotalBytes: queueTotalBytes)
                 }
             }
 
@@ -669,15 +669,27 @@ final class BackupViewModel: ObservableObject {
     /// - Parameters:
     ///   - id: The task whose row progress bar to update.
     ///   - fraction: Fraction of files processed for this specific task (0.0 – 0.99).
-    ///   - completedTasks: Number of fully-completed tasks in the queue so far.
-    ///   - totalTasks: Total number of tasks in the queue.
-    private func updateTaskProgressFraction(id: UUID, fraction: Double, completedTasks: Int, totalTasks: Int) {
+    ///   - queueTotalBytes: Sum of `targetBytes` across all queued tasks; used for byte-weighted global ring.
+    private func updateTaskProgressFraction(id: UUID, fraction: Double, queueTotalBytes: Int64) {
         guard let index = tasks.firstIndex(where: { $0.id == id }) else { return }
         // Per-folder row bar: clamp strictly to 0.99 while running
         tasks[index].progress = min(0.99, max(0.01, fraction))
-        // Global ring: (completedTasks + currentFraction) / totalTasks — clamped to 0.99
-        let global = (Double(completedTasks) + fraction) / Double(max(1, totalTasks))
-        globalProgress = min(0.99, max(0.0, global))
+
+        // Global ring: byte-weighted sum of all completed + current fraction
+        // Weight each task by its share of total bytes so a 1 GB folder counts more than a 1 MB one.
+        let totalBytes = max(1, queueTotalBytes)
+        var weightedDone: Double = 0
+        for t in tasks {
+            let weight = Double(max(1, t.targetBytes)) / Double(totalBytes)
+            if t.id == id {
+                weightedDone += weight * fraction
+            } else if t.status == .success || t.status == .failed {
+                weightedDone += weight * 1.0
+            } else if t.progress > 0 {
+                weightedDone += weight * t.progress
+            }
+        }
+        globalProgress = min(0.99, max(0.0, weightedDone))
     }
 
     private func setStatus(_ id: UUID, _ status: SyncStatus, date: Date? = nil) {
