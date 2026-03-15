@@ -1,7 +1,7 @@
 # Privacy Policy — BackupFlow
 
-**Version:** 1.3.0  
-**Effective Date:** March 14, 2026
+**Version:** 1.5.0  
+**Effective Date:** March 15, 2026
 
 ## Summary
 
