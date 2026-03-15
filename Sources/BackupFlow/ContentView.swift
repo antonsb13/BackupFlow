@@ -158,6 +158,7 @@ private struct WindowMaterialModifier: ViewModifier {
 struct DeletionConfirmationModal: View {
     @EnvironmentObject var vm: BackupViewModel
     @State private var applyToAll = false
+    @State private var isProcessing = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -185,25 +186,35 @@ struct DeletionConfirmationModal: View {
 
             Toggle("Apply to all remaining deletions in this sync task", isOn: $applyToAll)
                 .padding(.top, 8)
+                .disabled(isProcessing)
 
             HStack {
                 Button("Cancel Sync", role: .cancel) {
+                    isProcessing = true
                     vm.resolveDeletion(approved: false, applyToAll: false)
                 }
                 .keyboardShortcut(.escape, modifiers: [])
+                .disabled(isProcessing)
                 
                 Spacer()
                 
                 Button(role: .destructive) {
+                    isProcessing = true
                     vm.resolveDeletion(approved: true, applyToAll: applyToAll)
                 } label: {
-                    Text("Delete")
-                        .bold()
-                        .frame(minWidth: 80)
+                    if isProcessing {
+                        ProgressView().controlSize(.small)
+                            .frame(minWidth: 80)
+                    } else {
+                        Text("Delete")
+                            .bold()
+                            .frame(minWidth: 80)
+                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.red)
                 .keyboardShortcut(.defaultAction)
+                .disabled(isProcessing)
             }
             .padding(.top, 8)
         }
@@ -214,5 +225,8 @@ struct DeletionConfirmationModal: View {
         .shadow(color: .black.opacity(0.3), radius: 20, x: 0, y: 10)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black.opacity(0.4).ignoresSafeArea())
+        .onChange(of: vm.currentDeletionIndex) { _ in
+            isProcessing = false
+        }
     }
 }

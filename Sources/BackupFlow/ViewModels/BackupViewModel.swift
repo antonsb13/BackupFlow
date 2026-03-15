@@ -310,6 +310,9 @@ final class BackupViewModel: ObservableObject {
                             break
                         }
                     }
+                    await MainActor.run {
+                        self.isReviewingDeletions = false
+                    }
                 }
                 if isSyncCancelled { return }
             }
@@ -462,6 +465,9 @@ final class BackupViewModel: ObservableObject {
                             }
                             break
                         }
+                    }
+                    await MainActor.run {
+                        self.isReviewingDeletions = false
                     }
                 }
                 if isSyncCancelled { return }
