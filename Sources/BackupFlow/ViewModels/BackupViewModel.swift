@@ -478,11 +478,11 @@ final class BackupViewModel: ObservableObject {
                 useChecksum:  checksum
             ) { [weak self] text in
                 Task { @MainActor [weak self] in self?.log(text) }
-            } onProgress: { [weak self, id = task.id, targetBytes = task.targetBytes, queueTotalBytes] bytesTransferred in
+            } onProgress: { [weak self, id = task.id, targetBytes = task.targetBytes, queueTotalBytes, activeIds = snapshot.map(\.id)] bytesTransferred in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     let fraction = Double(bytesTransferred) / Double(max(1, targetBytes))
-                    self.updateTaskProgressFraction(id: id, fraction: fraction, queueTotalBytes: queueTotalBytes)
+                    self.updateTaskProgressFraction(id: id, fraction: fraction, queueTotalBytes: queueTotalBytes, activeTaskIds: activeIds)
                 }
             }
 
@@ -671,17 +671,20 @@ final class BackupViewModel: ObservableObject {
     /// - Parameters:
     ///   - id: The task whose row progress bar to update.
     ///   - fraction: Fraction of files processed for this specific task (0.0 – 0.99).
-    ///   - queueTotalBytes: Sum of `targetBytes` across all queued tasks; used for byte-weighted global ring.
-    private func updateTaskProgressFraction(id: UUID, fraction: Double, queueTotalBytes: Int64) {
+    ///   - queueTotalBytes: Sum of `targetBytes` across all ACTIVE queued tasks.
+    ///   - activeTaskIds: The IDs of the tasks that are part of the current sync session.
+    private func updateTaskProgressFraction(id: UUID, fraction: Double, queueTotalBytes: Int64, activeTaskIds: [UUID]) {
         guard let index = tasks.firstIndex(where: { $0.id == id }) else { return }
         // Per-folder row bar: clamp strictly to 0.99 while running
         tasks[index].progress = min(0.99, max(0.01, fraction))
 
         // Global ring: byte-weighted sum of all completed + current fraction
-        // Weight each task by its share of total bytes so a 1 GB folder counts more than a 1 MB one.
+        // Only consider tasks that are part of the current active session
         let totalBytes = max(1, queueTotalBytes)
         var weightedDone: Double = 0
         for t in tasks {
+            guard activeTaskIds.contains(t.id) else { continue }
+            
             let weight = Double(max(1, t.targetBytes)) / Double(totalBytes)
             if t.id == id {
                 weightedDone += weight * fraction

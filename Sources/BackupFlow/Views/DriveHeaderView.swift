@@ -155,7 +155,7 @@ private struct SyncButton: View {
                             .stroke(Color.white.opacity(0.9), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
                             .frame(width: 53, height: 53)
                             .rotationEffect(.degrees(-90))
-                            .animation(.linear(duration: 0.15), value: vm.globalProgress)
+                            .animation(.easeInOut, value: vm.globalProgress)
                     }
                 }
 

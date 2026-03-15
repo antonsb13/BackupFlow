@@ -306,7 +306,7 @@ actor SyncEngine {
         if t.first?.isNumber == true && (t.contains("%") || t.contains("xfr#")) { return false }
 
         // 4. Drop rsync internal headers / footers
-        let rsyncHeaders = ["sending incremental file list", "sent ", "total size is",
+        let rsyncHeaders = ["sending incremental file list", "building file list", "sent ", "total size is",
                             "total transferred file size", "Number of files",
                             "File list size", "File list generation time",
                             "File list transfer time", "Total bytes sent", "Total bytes received"]
@@ -369,7 +369,13 @@ actor SyncEngine {
 
                 let lines = text.components(separatedBy: "\n")
 
-                let filtered = lines.filter { line in
+                var finalLines = [String]()
+                for rawLine in lines {
+                    var line = rawLine
+                    if line.hasPrefix("Transfer starting:") {
+                        line = "Syncing changes..."
+                    }
+                    
                     if !self.shouldShow(line) {
                         let t = line.trimmingCharacters(in: .whitespaces)
                         if t.first?.isNumber == true && (t.contains("%") || t.contains("xfr#")) {
@@ -388,14 +394,14 @@ actor SyncEngine {
                                 }
                             }
                         }
-                        return false
+                    } else {
+                        finalLines.append(line)
                     }
-                    return true
                 }
-                .joined(separator: "\n")
 
-                if !filtered.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    onOutput(filtered + "\n")
+                let joined = finalLines.joined(separator: "\n")
+                if !joined.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    onOutput(joined + "\n")
                 }
             }
 
