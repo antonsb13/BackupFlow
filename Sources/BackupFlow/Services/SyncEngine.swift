@@ -32,6 +32,8 @@ actor SyncEngine {
         "--exclude=.DocumentRevisions-V100",
         "--exclude=.TemporaryItems",
         "--exclude=$RECYCLE.BIN",
+        "--exclude=.localized",
+        "--exclude=Thumbs.db",
         "--no-perms",
         "--no-owner",
         "--no-group",
@@ -116,9 +118,9 @@ actor SyncEngine {
         if useChecksum { args.append("--checksum") }
         
         // Ensure --delete is explicitly present as requested (though it's in baseFlags),
-        // and add the out-format
+        // and add the itemize-changes flag so we can parse `*deleting`
         if !args.contains("--delete") { args.append("--delete") }
-        args.append(contentsOf: ["-n", "--out-format=DELETING:%n", src, dst])
+        args.append(contentsOf: ["-n", "-i", src, dst])
         
         let _keepAlive = [mainURL, secondaryURL]
         
@@ -163,12 +165,9 @@ actor SyncEngine {
                 var deletions: [String] = []
                 for line in text.components(separatedBy: "\n") {
                     let trimmed = line.trimmingCharacters(in: .whitespaces)
-                    if trimmed.hasPrefix("DELETING:") {
-                        let path = trimmed.replacingOccurrences(of: "DELETING:", with: "").trimmingCharacters(in: .whitespaces)
-                        if !path.isEmpty && path != "." && path != "./" {
-                            deletions.append(path)
-                        }
-                    } else if trimmed.hasPrefix("deleting ") || trimmed.hasPrefix("*deleting") {
+                    if trimmed.hasPrefix("deleting ") || trimmed.hasPrefix("*deleting") {
+                        // For rsync -i, deletions look like "*deleting   filename"
+                        // Or standard "deleting filename"
                         let path = trimmed.replacingOccurrences(of: "deleting ", with: "")
                                           .replacingOccurrences(of: "*deleting", with: "")
                                           .trimmingCharacters(in: .whitespaces)

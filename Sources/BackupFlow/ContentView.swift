@@ -170,7 +170,7 @@ struct DeletionConfirmationModal: View {
                     .bold()
             }
 
-            Text("The following item is missing from the source and will be permanently deleted from the backup disk:")
+            Text("This file exists on your Backup Disk but is no longer present on your Main Disk. Delete from backup?")
                 .foregroundColor(.secondary)
             
             if vm.currentDeletionIndex < vm.deletionQueue.count {
