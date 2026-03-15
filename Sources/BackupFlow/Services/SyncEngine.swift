@@ -189,7 +189,7 @@ actor SyncEngine {
         to secondaryURL: URL,
         useChecksum: Bool,
         onOutput: @escaping @Sendable (String) -> Void,
-        onProgress: @escaping @Sendable (Double) -> Void = { _ in }
+        onProgress: @escaping @Sendable (Int64) -> Void = { _ in }
     ) async -> Bool {
         let src = ensureTrailingSlash(mainURL.path)
         let dst = ensureTrailingSlash(secondaryURL.path)
@@ -210,7 +210,7 @@ actor SyncEngine {
         secondaryRoot: URL,
         useChecksum: Bool,
         onOutput: @escaping @Sendable (String) -> Void,
-        onProgress: @escaping @Sendable (Double) -> Void = { _ in }
+        onProgress: @escaping @Sendable (Int64) -> Void = { _ in }
     ) async -> Bool {
         let srcURL = mainRoot.appendingPathComponent(relativePath)
         let dstURL = secondaryRoot.appendingPathComponent(relativePath)
@@ -279,38 +279,74 @@ actor SyncEngine {
         path.hasSuffix("/") ? path : path + "/"
     }
 
-    /// Filters raw rsync progress lines from stdout; only file names and summaries are forwarded.
+    /// Filters raw rsync progress lines from stdout — only file names and summaries are forwarded.
+    /// Hard-filters system paths and rsync internal headers to keep the Log Console clean.
     private nonisolated func shouldShow(_ line: String) -> Bool {
         let t = line.trimmingCharacters(in: .whitespaces)
+
+        // 1. Always drop empty lines
         if t.isEmpty { return false }
-        // Skip per-file byte-progress lines ("  1,234,567  98%  4.56MB/s  0:00:01 (xfr#1, to-chk=3/16)")
+
+        // 2. Drop system noise: root dir symbols and common macOS metadata
+        let systemNoise = ["./", ".", ".DS_Store", ".localized", ".Spotlight-V100",
+                           ".Trashes", ".DocumentRevisions-V100", ".fseventsd"]
+        if systemNoise.contains(t) {
+            print("DEBUG: Filtering path [\(t)]")
+            return false
+        }
+        // Drop lines containing system file patterns (e.g. nested paths)
+        let noisePatterns = [".DS_Store", ".localized", ".Spotlight-V100",
+                             ".Trashes", ".DocumentRevisions-V100", ".fseventsd"]
+        for pattern in noisePatterns where t.contains(pattern) {
+            print("DEBUG: Filtering path [\(t)]")
+            return false
+        }
+
+        // 3. Drop rsync per-file byte-progress lines ("  1,234,567  98%  4.56MB/s  0:00:01")
         if t.first?.isNumber == true && (t.contains("%") || t.contains("xfr#")) { return false }
+
+        // 4. Drop rsync internal headers / footers
+        let rsyncHeaders = ["sending incremental file list", "sent ", "total size is",
+                            "total transferred file size", "Number of files",
+                            "File list size", "File list generation time",
+                            "File list transfer time", "Total bytes sent", "Total bytes received"]
+        for h in rsyncHeaders where t.lowercased().hasPrefix(h.lowercased()) { return false }
         if t.hasPrefix("sent ") && t.contains("bytes") { return false }
         if t.hasPrefix("total size") { return false }
+
         return true
     }
 
-    /// Parses the `to-chk=REMAINING/TOTAL` token from a rsync --progress line.
-    /// Returns fraction of queue COMPLETED = (total - remaining) / total.
-    /// This is immune to --checksum false-100% emissions.
-    private nonisolated func parseToCheckFraction(from line: String) -> Double? {
-        // Look for pattern: to-chk=X/Y  or  ir-chk=X/Y
-        guard let range = line.range(of: #"(?:to-chk|ir-chk)=([0-9]+)/([0-9]+)"#,
-                                      options: .regularExpression) else { return nil }
-        let token = String(line[range])
-        // token = "to-chk=3/16"
-        let parts = token.split(separator: "=").last?.split(separator: "/")
-        guard let remainingStr = parts?.first, let totalStr = parts?.last,
-              let remaining = Double(remainingStr), let total = Double(totalStr),
-              total > 0 else { return nil }
-        // Fraction completed (clamped to [0, 0.99] during active transfer)
-        return min(0.99, max(0.0, (total - remaining) / total))
+    private final class ProcessProgressState: @unchecked Sendable {
+        private let lock = NSLock()
+        var completedBytes: Int64 = 0
+        var currentFileBytes: Int64 = 0
+        var lastUpdate: Date = Date.distantPast
+        
+        var totalSoFar: Int64 {
+            lock.lock()
+            defer { lock.unlock() }
+            return completedBytes + currentFileBytes
+        }
+        
+        func setCurrentFileBytes(_ bytes: Int64) {
+            lock.lock()
+            defer { lock.unlock() }
+            currentFileBytes = bytes
+        }
+        
+        func commitCurrentFile() {
+            lock.lock()
+            defer { lock.unlock() }
+            completedBytes += currentFileBytes
+            currentFileBytes = 0
+        }
     }
 
     private func runRsync(
         arguments: [String],
         onOutput: @escaping @Sendable (String) -> Void,
-        onProgress: @escaping @Sendable (Double) -> Void
+        onProgress: @escaping @Sendable (Int64) -> Void
     ) async -> Bool {
         await withCheckedContinuation { continuation in
             let process = Process()
@@ -324,30 +360,39 @@ actor SyncEngine {
 
             self.activeProcesses.append(process)
 
+            let progressState = ProcessProgressState()
+
             // Stream stdout — parse to-chk=X/Y fraction, filter noisy lines
             outPipe.fileHandleForReading.readabilityHandler = { @Sendable [self] handle in
                 let data = handle.availableData
                 guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
 
                 let lines = text.components(separatedBy: "\n")
-                var bestFraction: Double? = nil
 
                 let filtered = lines.filter { line in
                     if !self.shouldShow(line) {
-                        // Parse the to-chk=X/Y fraction from progress lines
-                        if let f = self.parseToCheckFraction(from: line) {
-                            // Keep the highest fraction seen in this chunk (most progressed)
-                            bestFraction = max(bestFraction ?? 0, f)
+                        let t = line.trimmingCharacters(in: .whitespaces)
+                        if t.first?.isNumber == true && (t.contains("%") || t.contains("xfr#")) {
+                            let parts = t.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+                            if let first = parts.first, let currentBytes = Int64(first.replacingOccurrences(of: ",", with: "")) {
+                                progressState.setCurrentFileBytes(currentBytes)
+                                
+                                if parts.contains("100%") {
+                                    progressState.commitCurrentFile()
+                                }
+                                
+                                let now = Date()
+                                if now.timeIntervalSince(progressState.lastUpdate) > 0.1 || parts.contains("100%") {
+                                    progressState.lastUpdate = now
+                                    onProgress(progressState.totalSoFar)
+                                }
+                            }
                         }
                         return false
                     }
                     return true
                 }
                 .joined(separator: "\n")
-
-                if let f = bestFraction {
-                    onProgress(f)
-                }
 
                 if !filtered.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     onOutput(filtered + "\n")

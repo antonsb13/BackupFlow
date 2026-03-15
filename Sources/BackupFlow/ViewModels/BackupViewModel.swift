@@ -320,9 +320,10 @@ final class BackupViewModel: ObservableObject {
                 useChecksum:  checksum
             ) { [weak self] text in
                 Task { @MainActor [weak self] in self?.log(text) }
-            } onProgress: { [weak self, id = task.id, queueTotalBytes] fraction in
+            } onProgress: { [weak self, id = task.id, targetBytes = task.targetBytes, queueTotalBytes] bytesTransferred in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
+                    let fraction = Double(bytesTransferred) / Double(max(1, targetBytes))
                     self.updateTaskProgressFraction(id: id, fraction: fraction, queueTotalBytes: queueTotalBytes)
                 }
             }
@@ -348,11 +349,11 @@ final class BackupViewModel: ObservableObject {
         
         let sweepOk = await engine.syncEntireDrive(from: mURL, to: sURL, useChecksum: checksum) { [weak self] text in
             Task { @MainActor [weak self] in self?.log(text) }
-        } onProgress: { [weak self, completedTasks] fraction in
+        } onProgress: { [weak self, completedBytes = queueTotalBytes - rootSweepSize, totalBytes = queueTotalBytes] bytesTransferred in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                let global = (Double(completedTasks) + fraction) / Double(max(1, self.totalTasksCount))
-                self.globalProgress = min(0.99, max(0.0, global))
+                let overallTransferred = Double(completedBytes) + Double(bytesTransferred)
+                self.globalProgress = min(0.99, max(0.0, overallTransferred / Double(max(1, totalBytes))))
             }
         }
         
@@ -477,9 +478,10 @@ final class BackupViewModel: ObservableObject {
                 useChecksum:  checksum
             ) { [weak self] text in
                 Task { @MainActor [weak self] in self?.log(text) }
-            } onProgress: { [weak self, id = task.id, queueTotalBytes] fraction in
+            } onProgress: { [weak self, id = task.id, targetBytes = task.targetBytes, queueTotalBytes] bytesTransferred in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
+                    let fraction = Double(bytesTransferred) / Double(max(1, targetBytes))
                     self.updateTaskProgressFraction(id: id, fraction: fraction, queueTotalBytes: queueTotalBytes)
                 }
             }
