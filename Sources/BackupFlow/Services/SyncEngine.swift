@@ -165,14 +165,14 @@ actor SyncEngine {
                     let trimmed = line.trimmingCharacters(in: .whitespaces)
                     if trimmed.hasPrefix("DELETING:") {
                         let path = trimmed.replacingOccurrences(of: "DELETING:", with: "").trimmingCharacters(in: .whitespaces)
-                        if !path.isEmpty {
+                        if !path.isEmpty && path != "." && path != "./" {
                             deletions.append(path)
                         }
                     } else if trimmed.hasPrefix("deleting ") || trimmed.hasPrefix("*deleting") {
                         let path = trimmed.replacingOccurrences(of: "deleting ", with: "")
                                           .replacingOccurrences(of: "*deleting", with: "")
                                           .trimmingCharacters(in: .whitespaces)
-                        if !path.isEmpty {
+                        if !path.isEmpty && path != "." && path != "./" {
                             deletions.append(path)
                         }
                     }
