@@ -120,8 +120,6 @@ actor SyncEngine {
         if !args.contains("--delete") { args.append("--delete") }
         args.append(contentsOf: ["-n", "--out-format=DELETING:%n", src, dst])
         
-        print("DRY RUN COMMAND: /usr/bin/rsync \(args.joined(separator: " "))")
-        
         let _keepAlive = [mainURL, secondaryURL]
         
         final class OutputStorage: @unchecked Sendable {
@@ -162,8 +160,6 @@ actor SyncEngine {
                     return
                 }
                 
-                print("RAW DRY RUN OUTPUT:\n\(text)")
-                
                 var deletions: [String] = []
                 for line in text.components(separatedBy: "\n") {
                     let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -182,7 +178,6 @@ actor SyncEngine {
                     }
                 }
                 
-                print("DELETIONS DETECTED: \(deletions.count)")
                 continuation.resume(returning: deletions)
             }
             
@@ -269,10 +264,8 @@ actor SyncEngine {
         for path in absolutePaths {
             do {
                 try FileManager.default.removeItem(atPath: path)
-                print("Cleaned up: \(path)")
             } catch let error as NSError {
                 if error.code == NSFileNoSuchFileError { continue }
-                print("Failed to clean up \(path): \(error.localizedDescription)")
             }
         }
     }

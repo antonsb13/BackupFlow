@@ -34,6 +34,9 @@ Unlike bulky cloud clients or complex terminal scripts, BackupFlow lives quietly
 - **⏱ Smart Scheduling** — Background timer supports intervals from 15 minutes to a week. Syncs silently without opening a window.
 
 ### Pro Features (v1.6.2)
+- **🛡️ Advanced Deletion Guard (v1.6.x)** — Intelligent pre-sync analysis with granular per-file confirmation to avert accidental data loss.
+- **✨ Smart UX** — Added "Apply to all" logic and a global safety toggle in the toolbar.
+- **🔍 Transparency** — Detailed deletion logging in the internal Log Console.
 - **🔬 Deep Checksum Verification** — Toggle on to compare every file's SHA1 hash, not just size/date. Catches corruption that timestamps miss. Status badge updates to **"Verifying"** during this phase.
 - **🛡️ Rock-Solid Task Management** — Immediate termination of all background processes on abort or app exit (no zombie tasks).
 - **🛑 Safe Cancellation** — Intelligent sync loop that prevents cascading status changes after a manual stop.

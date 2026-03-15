@@ -268,7 +268,6 @@ final class BackupViewModel: ObservableObject {
             if isSyncCancelled { return }
             
             // --- Deletions Guard phase ---
-            print("CONFIRM DELETIONS TOGGLE (Full Disk): \(confirmDeletions)")
             if confirmDeletions {
                 setStatus(task.id, .reviewingDeletions)
                 let deletions = await engine.calculateDeletions(
@@ -293,7 +292,6 @@ final class BackupViewModel: ObservableObject {
                                     self.log("🗑️ Deleted from backup: \(fileName)\n")
                                 }
                             }
-                            print("User aborted sync. Cleaning up \(approvedPaths.count) already approved deletions.")
                             await engine.deleteExactFiles(absolutePaths: approvedPaths)
                             abortSync()
                             return
@@ -418,7 +416,6 @@ final class BackupViewModel: ObservableObject {
             if isSyncCancelled { return }
             
             // --- Deletions Guard phase ---
-            print("CONFIRM DELETIONS TOGGLE (Folder Sync): \(confirmDeletions)")
             if confirmDeletions {
                 setStatus(task.id, .reviewingDeletions)
                 let deletions = await engine.calculateDeletions(
@@ -443,7 +440,6 @@ final class BackupViewModel: ObservableObject {
                                     self.log("🗑️ Deleted from backup: \(fileName)\n")
                                 }
                             }
-                            print("User aborted sync. Cleaning up \(approvedPaths.count) already approved deletions.")
                             await engine.deleteExactFiles(absolutePaths: approvedPaths)
                             abortSync()
                             return
