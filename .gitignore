@@ -103,3 +103,5 @@ Temporary Items
 !Info.plist
 !Package.swift
 !project.pbxproj
+.build/
+*.log
