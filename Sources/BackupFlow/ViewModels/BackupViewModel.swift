@@ -42,6 +42,7 @@ final class BackupViewModel: ObservableObject {
     @Published var isReviewingDeletions: Bool = false
     private var deletionContinuation: CheckedContinuation<Bool, Never>?
     private var applyToAllDeletions: Bool = false
+    @Published var approvedPaths: [String] = []
 
     // Global Progress State
     @Published var globalProgress: Double = 0.0
@@ -267,6 +268,7 @@ final class BackupViewModel: ObservableObject {
             if isSyncCancelled { return }
             
             // --- Deletions Guard phase ---
+            print("CONFIRM DELETIONS TOGGLE (Full Disk): \(confirmDeletions)")
             if confirmDeletions {
                 setStatus(task.id, .reviewingDeletions)
                 let deletions = await engine.calculateDeletions(
@@ -277,13 +279,33 @@ final class BackupViewModel: ObservableObject {
                 
                 if !deletions.isEmpty && !applyToAllDeletions && !isSyncCancelled {
                     deletionQueue = deletions
+                    approvedPaths.removeAll()
                     for (idx, path) in deletions.enumerated() {
                         if isSyncCancelled { break }
                         currentDeletionIndex = idx
                         let approved = await showDeletionConfirmation(for: path)
+                        
                         if !approved {
+                            await MainActor.run {
+                                self.setStatus(task.id, .aborted)
+                                for p in self.approvedPaths {
+                                    let fileName = URL(fileURLWithPath: p).lastPathComponent
+                                    self.log("🗑️ Deleted from backup: \(fileName)\n")
+                                }
+                            }
+                            print("User aborted sync. Cleaning up \(approvedPaths.count) already approved deletions.")
+                            await engine.deleteExactFiles(absolutePaths: approvedPaths)
                             abortSync()
                             return
+                        } else if !applyToAllDeletions {
+                            let dstURL = sURL.appendingPathComponent(task.relativePath).appendingPathComponent(path)
+                            approvedPaths.append(dstURL.path)
+                        } else {
+                            await MainActor.run {
+                                let remaining = deletions.count - idx
+                                self.log("✅ Bulk deletion complete: \(remaining) files removed.\n")
+                            }
+                            break
                         }
                     }
                 }
@@ -396,6 +418,7 @@ final class BackupViewModel: ObservableObject {
             if isSyncCancelled { return }
             
             // --- Deletions Guard phase ---
+            print("CONFIRM DELETIONS TOGGLE (Folder Sync): \(confirmDeletions)")
             if confirmDeletions {
                 setStatus(task.id, .reviewingDeletions)
                 let deletions = await engine.calculateDeletions(
@@ -406,13 +429,33 @@ final class BackupViewModel: ObservableObject {
                 
                 if !deletions.isEmpty && !applyToAllDeletions && !isSyncCancelled {
                     deletionQueue = deletions
+                    approvedPaths.removeAll()
                     for (idx, path) in deletions.enumerated() {
                         if isSyncCancelled { break }
                         currentDeletionIndex = idx
                         let approved = await showDeletionConfirmation(for: path)
+                        
                         if !approved {
+                            await MainActor.run {
+                                self.setStatus(task.id, .aborted)
+                                for p in self.approvedPaths {
+                                    let fileName = URL(fileURLWithPath: p).lastPathComponent
+                                    self.log("🗑️ Deleted from backup: \(fileName)\n")
+                                }
+                            }
+                            print("User aborted sync. Cleaning up \(approvedPaths.count) already approved deletions.")
+                            await engine.deleteExactFiles(absolutePaths: approvedPaths)
                             abortSync()
                             return
+                        } else if !applyToAllDeletions {
+                            let dstURL = sURL.appendingPathComponent(task.relativePath).appendingPathComponent(path)
+                            approvedPaths.append(dstURL.path)
+                        } else {
+                            await MainActor.run {
+                                let remaining = deletions.count - idx
+                                self.log("✅ Bulk deletion complete: \(remaining) files removed.\n")
+                            }
+                            break
                         }
                     }
                 }
@@ -496,9 +539,9 @@ final class BackupViewModel: ObservableObject {
             } else {
                 // Aborted mid-transfer — only mark the actively syncing tasks as aborted
                 for i in 0..<tasks.count {
-                    if tasks[i].status == .syncing || tasks[i].status == .verifying {
+                    if tasks[i].status == .syncing || tasks[i].status == .verifying || tasks[i].status == .reviewingDeletions {
                         setStatus(tasks[i].id, .aborted)
-                    } else if tasks[i].status == .calculating || tasks[i].status == .reviewingDeletions {
+                    } else if tasks[i].status == .calculating {
                         // Edge case fallback
                         setStatus(tasks[i].id, .idle)
                     }

@@ -114,7 +114,13 @@ actor SyncEngine {
         
         var args = Self.baseFlags.filter { $0 != "--progress" }
         if useChecksum { args.append("--checksum") }
-        args.append(contentsOf: ["-n", src, dst])
+        
+        // Ensure --delete is explicitly present as requested (though it's in baseFlags),
+        // and add the out-format
+        if !args.contains("--delete") { args.append("--delete") }
+        args.append(contentsOf: ["-n", "--out-format=DELETING:%n", src, dst])
+        
+        print("DRY RUN COMMAND: /usr/bin/rsync \(args.joined(separator: " "))")
         
         let _keepAlive = [mainURL, secondaryURL]
         
@@ -156,17 +162,27 @@ actor SyncEngine {
                     return
                 }
                 
+                print("RAW DRY RUN OUTPUT:\n\(text)")
+                
                 var deletions: [String] = []
                 for line in text.components(separatedBy: "\n") {
                     let trimmed = line.trimmingCharacters(in: .whitespaces)
-                    if trimmed.hasPrefix("*deleting") {
-                        // Extract everything after "*deleting   "
-                        let path = trimmed.replacingOccurrences(of: "*deleting", with: "").trimmingCharacters(in: .whitespaces)
+                    if trimmed.hasPrefix("DELETING:") {
+                        let path = trimmed.replacingOccurrences(of: "DELETING:", with: "").trimmingCharacters(in: .whitespaces)
+                        if !path.isEmpty {
+                            deletions.append(path)
+                        }
+                    } else if trimmed.hasPrefix("deleting ") || trimmed.hasPrefix("*deleting") {
+                        let path = trimmed.replacingOccurrences(of: "deleting ", with: "")
+                                          .replacingOccurrences(of: "*deleting", with: "")
+                                          .trimmingCharacters(in: .whitespaces)
                         if !path.isEmpty {
                             deletions.append(path)
                         }
                     }
                 }
+                
+                print("DELETIONS DETECTED: \(deletions.count)")
                 continuation.resume(returning: deletions)
             }
             
@@ -246,6 +262,19 @@ actor SyncEngine {
     /// Aborts current sync entirely.
     func abort() {
         forceStopAll()
+    }
+
+    /// Safely deletes specific absolute paths. Used for partial deletion approvals before an abort.
+    func deleteExactFiles(absolutePaths: [String]) async {
+        for path in absolutePaths {
+            do {
+                try FileManager.default.removeItem(atPath: path)
+                print("Cleaned up: \(path)")
+            } catch let error as NSError {
+                if error.code == NSFileNoSuchFileError { continue }
+                print("Failed to clean up \(path): \(error.localizedDescription)")
+            }
+        }
     }
 
     // MARK: - Private
