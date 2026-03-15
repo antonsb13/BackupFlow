@@ -39,6 +39,16 @@ struct ContentView: View {
                         Divider().frame(height: 18)
                     }
 
+                    // Confirm Deletions Toggle
+                    ToolbarIconButton(
+                        icon: "shield.checkerboard",
+                        tooltip: "Confirm deletions before applying",
+                        isActive: vm.confirmDeletions,
+                        isDisabled: vm.isSyncing
+                    ) {
+                        vm.confirmDeletions.toggle()
+                    }
+
                     // Mute Toggle
                     ToolbarIconButton(
                         icon: vm.isMuted ? "speaker.slash.fill" : "speaker.fill",
@@ -62,6 +72,12 @@ struct ContentView: View {
         .sheet(isPresented: $showSchedule) {
             ScheduleSettingsView()
                 .environmentObject(vm)
+        }
+        .overlay {
+            if vm.isReviewingDeletions {
+                DeletionConfirmationModal()
+                    .environmentObject(vm)
+            }
         }
         .alert(
             "Sync Error",
@@ -134,5 +150,69 @@ private struct WindowMaterialModifier: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+// MARK: - Deletion Confirmation Modal
+
+struct DeletionConfirmationModal: View {
+    @EnvironmentObject var vm: BackupViewModel
+    @State private var applyToAll = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.yellow)
+                    .font(.system(size: 24))
+                Text("Confirm Deletion")
+                    .font(.title2)
+                    .bold()
+            }
+
+            Text("The following item is missing from the source and will be permanently deleted from the backup disk:")
+                .foregroundColor(.secondary)
+            
+            if vm.currentDeletionIndex < vm.deletionQueue.count {
+                Text(vm.deletionQueue[vm.currentDeletionIndex])
+                    .font(.system(.body, design: .monospaced))
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.primary.opacity(0.05))
+                    .cornerRadius(8)
+                    .lineLimit(nil)
+            }
+
+            Toggle("Apply to all remaining deletions in this sync task", isOn: $applyToAll)
+                .padding(.top, 8)
+
+            HStack {
+                Button("Cancel Sync", role: .cancel) {
+                    vm.resolveDeletion(approved: false, applyToAll: false)
+                }
+                .keyboardShortcut(.escape, modifiers: [])
+                
+                Spacer()
+                
+                Button(role: .destructive) {
+                    vm.resolveDeletion(approved: true, applyToAll: applyToAll)
+                } label: {
+                    Text("Delete")
+                        .bold()
+                        .frame(minWidth: 80)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding(.top, 8)
+        }
+        .padding(24)
+        .frame(width: 500)
+        .background(Color(NSColor.windowBackgroundColor))
+        .cornerRadius(12)
+        .shadow(color: .black.opacity(0.3), radius: 20, x: 0, y: 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black.opacity(0.4).ignoresSafeArea())
     }
 }

@@ -106,6 +106,73 @@ actor SyncEngine {
         }
     }
 
+    /// Performs a dry-run to identify all files and folders that will be deleted.
+    /// Returns an array of relative paths strictly matching `*deleting` lines from rsync output.
+    func calculateDeletions(from mainURL: URL, to secondaryURL: URL, useChecksum: Bool) async -> [String] {
+        let src = ensureTrailingSlash(mainURL.path)
+        let dst = ensureTrailingSlash(secondaryURL.path)
+        
+        var args = Self.baseFlags.filter { $0 != "--progress" }
+        if useChecksum { args.append("--checksum") }
+        args.append(contentsOf: ["-n", src, dst])
+        
+        let _keepAlive = [mainURL, secondaryURL]
+        
+        final class OutputStorage: @unchecked Sendable {
+            private let lock = NSLock()
+            var data = Data()
+            func append(_ newData: Data) {
+                lock.lock()
+                defer { lock.unlock() }
+                data.append(newData)
+            }
+            func get() -> String? {
+                lock.lock()
+                defer { lock.unlock() }
+                return String(data: data, encoding: .utf8)
+            }
+        }
+        
+        return await withCheckedContinuation { continuation in
+            let process = Process()
+            let outPipe = Pipe()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/rsync")
+            process.arguments = args
+            process.standardOutput = outPipe
+            self.activeProcesses.append(process)
+            
+            let storage = OutputStorage()
+            outPipe.fileHandleForReading.readabilityHandler = { handle in
+                storage.append(handle.availableData)
+            }
+            
+            process.terminationHandler = { _ in
+                outPipe.fileHandleForReading.readabilityHandler = nil
+                _ = _keepAlive
+                Task { [weak process] in if let p = process { await self.removeProcess(p) } }
+                
+                guard let text = storage.get() else {
+                    continuation.resume(returning: [])
+                    return
+                }
+                
+                var deletions: [String] = []
+                for line in text.components(separatedBy: "\n") {
+                    let trimmed = line.trimmingCharacters(in: .whitespaces)
+                    if trimmed.hasPrefix("*deleting") {
+                        // Extract everything after "*deleting   "
+                        let path = trimmed.replacingOccurrences(of: "*deleting", with: "").trimmingCharacters(in: .whitespaces)
+                        if !path.isEmpty {
+                            deletions.append(path)
+                        }
+                    }
+                }
+                continuation.resume(returning: deletions)
+            }
+            
+            do { try process.run() } catch { continuation.resume(returning: []) }
+        }
+    }
     /// Mirrors the entire `mainURL` directory to `secondaryURL` using rsync --delete.
     func syncEntireDrive(
         from mainURL: URL,

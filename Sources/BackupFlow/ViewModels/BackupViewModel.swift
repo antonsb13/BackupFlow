@@ -32,6 +32,16 @@ final class BackupViewModel: ObservableObject {
     @Published var alertMessage: String? = nil
     @Published var useChecksum: Bool = false
     @Published var isSyncCancelled: Bool = false
+    
+    // Deletion Guard State
+    @Published var confirmDeletions: Bool = UserDefaults.standard.bool(forKey: "bf.confirmDeletions") {
+        didSet { UserDefaults.standard.set(confirmDeletions, forKey: "bf.confirmDeletions") }
+    }
+    @Published var deletionQueue: [String] = []
+    @Published var currentDeletionIndex: Int = 0
+    @Published var isReviewingDeletions: Bool = false
+    private var deletionContinuation: CheckedContinuation<Bool, Never>?
+    private var applyToAllDeletions: Bool = false
 
     // Global Progress State
     @Published var globalProgress: Double = 0.0
@@ -213,6 +223,7 @@ final class BackupViewModel: ObservableObject {
         }
         
         isSyncCancelled = false
+        applyToAllDeletions = false
         
         // 1. Calculate Target Bytes strictly before processing — mark rows as .calculating
         log("Calculating transfer sizes...\n")
@@ -253,6 +264,32 @@ final class BackupViewModel: ObservableObject {
         // 2. Sync each top-level folder
         let activeStatus: SyncStatus = checksum ? .verifying : .syncing
         for (i, task) in snapshot.enumerated() {
+            if isSyncCancelled { return }
+            
+            // --- Deletions Guard phase ---
+            if confirmDeletions {
+                setStatus(task.id, .reviewingDeletions)
+                let deletions = await engine.calculateDeletions(
+                    from: mURL.appendingPathComponent(task.relativePath),
+                    to: sURL.appendingPathComponent(task.relativePath),
+                    useChecksum: checksum
+                )
+                
+                if !deletions.isEmpty && !applyToAllDeletions && !isSyncCancelled {
+                    deletionQueue = deletions
+                    for (idx, path) in deletions.enumerated() {
+                        if isSyncCancelled { break }
+                        currentDeletionIndex = idx
+                        let approved = await showDeletionConfirmation(for: path)
+                        if !approved {
+                            abortSync()
+                            return
+                        }
+                    }
+                }
+                if isSyncCancelled { return }
+            }
+            
             currentTaskIndex = i + 1
             setStatus(task.id, activeStatus)  // Row transitions to Syncing / Verifying
 
@@ -321,6 +358,7 @@ final class BackupViewModel: ObservableObject {
         }
         
         isSyncCancelled = false
+        applyToAllDeletions = false
         
         // Begin calculating sizes — mark each row as calculating
         log("Calculating transfer sizes...\n")
@@ -356,6 +394,31 @@ final class BackupViewModel: ObservableObject {
 
         for (i, task) in snapshot.enumerated() {
             if isSyncCancelled { return }
+            
+            // --- Deletions Guard phase ---
+            if confirmDeletions {
+                setStatus(task.id, .reviewingDeletions)
+                let deletions = await engine.calculateDeletions(
+                    from: mURL.appendingPathComponent(task.relativePath),
+                    to: sURL.appendingPathComponent(task.relativePath),
+                    useChecksum: checksum
+                )
+                
+                if !deletions.isEmpty && !applyToAllDeletions && !isSyncCancelled {
+                    deletionQueue = deletions
+                    for (idx, path) in deletions.enumerated() {
+                        if isSyncCancelled { break }
+                        currentDeletionIndex = idx
+                        let approved = await showDeletionConfirmation(for: path)
+                        if !approved {
+                            abortSync()
+                            return
+                        }
+                    }
+                }
+                if isSyncCancelled { return }
+            }
+            
             currentTaskIndex = i + 1
             setStatus(task.id, activeStatus)  // Row transitions to Syncing / Verifying
             log("\n▶ [\(i + 1)/\(snapshot.count)] '\(task.folderName)' (\(task.relativePath))\n")
@@ -409,6 +472,13 @@ final class BackupViewModel: ObservableObject {
     func abortSync() {
         Task {
             isSyncCancelled = true
+            
+            if let cont = deletionContinuation {
+                cont.resume(returning: false)
+                deletionContinuation = nil
+                isReviewingDeletions = false
+            }
+            
             let wasCalculating = (syncState == .calculating || syncState == .idle)
             await engine.forceStopAll()
             
@@ -428,7 +498,7 @@ final class BackupViewModel: ObservableObject {
                 for i in 0..<tasks.count {
                     if tasks[i].status == .syncing || tasks[i].status == .verifying {
                         setStatus(tasks[i].id, .aborted)
-                    } else if tasks[i].status == .calculating {
+                    } else if tasks[i].status == .calculating || tasks[i].status == .reviewingDeletions {
                         // Edge case fallback
                         setStatus(tasks[i].id, .idle)
                     }
@@ -580,6 +650,27 @@ final class BackupViewModel: ObservableObject {
             tasks[index].isMissingOnBackup = false
         }
         if status == .idle { tasks[index].progress = 0.0 }
+    }
+    
+    // MARK: - Deletion Confirmation
+    
+    func resolveDeletion(approved: Bool, applyToAll: Bool) {
+        if applyToAll { applyToAllDeletions = true }
+        deletionContinuation?.resume(returning: approved)
+        deletionContinuation = nil
+        if applyToAllDeletions || !approved {
+            isReviewingDeletions = false
+        }
+    }
+
+    private func showDeletionConfirmation(for path: String) async -> Bool {
+        if applyToAllDeletions { return true }
+        
+        isReviewingDeletions = true
+        let approved: Bool = await withCheckedContinuation { continuation in
+            self.deletionContinuation = continuation
+        }
+        return approved
     }
 
     // MARK: - Helpers

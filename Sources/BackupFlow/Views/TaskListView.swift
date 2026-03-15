@@ -215,13 +215,14 @@ struct StatusBadge: View {
 
     private var badgeColor: Color {
         switch status {
-        case .idle:        return .secondary
-        case .calculating: return .secondary
-        case .syncing:     return .blue
-        case .verifying:   return .orange
-        case .success:     return .green
-        case .failed:      return .red
-        case .aborted:     return .orange
+        case .idle:               return .secondary
+        case .calculating:        return .secondary
+        case .reviewingDeletions: return .purple
+        case .syncing:            return .blue
+        case .verifying:          return .orange
+        case .success:            return .green
+        case .failed:             return .red
+        case .aborted:            return .orange
         }
     }
 }
