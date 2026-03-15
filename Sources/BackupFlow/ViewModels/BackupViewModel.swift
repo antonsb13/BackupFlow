@@ -298,6 +298,10 @@ final class BackupViewModel: ObservableObject {
                         } else if !applyToAllDeletions {
                             let dstURL = sURL.appendingPathComponent(task.relativePath).appendingPathComponent(path)
                             approvedPaths.append(dstURL.path)
+                            await MainActor.run {
+                                let fileName = dstURL.lastPathComponent
+                                self.log("🗑️ Deleted from backup: \(fileName)\n")
+                            }
                         } else {
                             await MainActor.run {
                                 let remaining = deletions.count - idx
@@ -447,6 +451,10 @@ final class BackupViewModel: ObservableObject {
                         } else if !applyToAllDeletions {
                             let dstURL = sURL.appendingPathComponent(task.relativePath).appendingPathComponent(path)
                             approvedPaths.append(dstURL.path)
+                            await MainActor.run {
+                                let fileName = dstURL.lastPathComponent
+                                self.log("🗑️ Deleted from backup: \(fileName)\n")
+                            }
                         } else {
                             await MainActor.run {
                                 let remaining = deletions.count - idx
@@ -535,12 +543,14 @@ final class BackupViewModel: ObservableObject {
                     }
                 }
             } else {
-                // Aborted mid-transfer — only mark the actively syncing tasks as aborted
+                // Aborted mid-transfer
                 for i in 0..<tasks.count {
                     if tasks[i].status == .syncing || tasks[i].status == .verifying || tasks[i].status == .reviewingDeletions {
                         setStatus(tasks[i].id, .aborted)
                     } else if tasks[i].status == .calculating {
-                        // Edge case fallback
+                        setStatus(tasks[i].id, .idle)
+                    } else if tasks[i].status == .success && i >= currentTaskIndex {
+                        // Future tasks that were only temporarily marked .success during calculation phase
                         setStatus(tasks[i].id, .idle)
                     }
                 }

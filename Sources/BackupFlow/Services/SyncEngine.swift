@@ -165,14 +165,13 @@ actor SyncEngine {
                 var deletions: [String] = []
                 for line in text.components(separatedBy: "\n") {
                     let trimmed = line.trimmingCharacters(in: .whitespaces)
-                    if trimmed.hasPrefix("deleting ") || trimmed.hasPrefix("*deleting") {
-                        // For rsync -i, deletions look like "*deleting   filename"
-                        // Or standard "deleting filename"
-                        let path = trimmed.replacingOccurrences(of: "deleting ", with: "")
-                                          .replacingOccurrences(of: "*deleting", with: "")
-                                          .trimmingCharacters(in: .whitespaces)
-                        if !path.isEmpty && path != "." && path != "./" {
-                            deletions.append(path)
+                    if trimmed.contains("deleting") {
+                        let comps = trimmed.components(separatedBy: "deleting")
+                        if let last = comps.last {
+                            let path = last.trimmingCharacters(in: CharacterSet(charactersIn: " \t*"))
+                            if !path.isEmpty && !path.contains("*") && !path.hasPrefix("./") && path != "." {
+                                deletions.append(path)
+                            }
                         }
                     }
                 }
@@ -301,6 +300,9 @@ actor SyncEngine {
             print("DEBUG: Filtering path [\(t)]")
             return false
         }
+        
+        // 3. Drop rsync deletion logs (we handle these manually in BackupViewModel)
+        if t.hasPrefix("deleting ") || t.hasPrefix("*deleting") { return false }
 
         // 3. Drop rsync per-file byte-progress lines ("  1,234,567  98%  4.56MB/s  0:00:01")
         if t.first?.isNumber == true && (t.contains("%") || t.contains("xfr#")) { return false }
