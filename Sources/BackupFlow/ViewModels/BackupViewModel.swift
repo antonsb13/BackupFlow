@@ -288,8 +288,7 @@ final class BackupViewModel: ObservableObject {
                             await MainActor.run {
                                 self.setStatus(task.id, .aborted)
                                 for p in self.approvedPaths {
-                                    let fileName = URL(fileURLWithPath: p).lastPathComponent
-                                    self.log("🗑️ Deleted from backup: \(fileName)\n")
+                                    self.log("🗑️ \(p)\n")
                                 }
                             }
                             await engine.deleteExactFiles(absolutePaths: approvedPaths)
@@ -299,8 +298,7 @@ final class BackupViewModel: ObservableObject {
                             let dstURL = sURL.appendingPathComponent(task.relativePath).appendingPathComponent(path)
                             approvedPaths.append(dstURL.path)
                             await MainActor.run {
-                                let fileName = dstURL.lastPathComponent
-                                self.log("🗑️ Deleted from backup: \(fileName)\n")
+                                self.log("🗑️ \(dstURL.path)\n")
                             }
                         } else {
                             await MainActor.run {
@@ -444,8 +442,7 @@ final class BackupViewModel: ObservableObject {
                             await MainActor.run {
                                 self.setStatus(task.id, .aborted)
                                 for p in self.approvedPaths {
-                                    let fileName = URL(fileURLWithPath: p).lastPathComponent
-                                    self.log("🗑️ Deleted from backup: \(fileName)\n")
+                                    self.log("🗑️ \(p)\n")
                                 }
                             }
                             await engine.deleteExactFiles(absolutePaths: approvedPaths)
@@ -455,8 +452,7 @@ final class BackupViewModel: ObservableObject {
                             let dstURL = sURL.appendingPathComponent(task.relativePath).appendingPathComponent(path)
                             approvedPaths.append(dstURL.path)
                             await MainActor.run {
-                                let fileName = dstURL.lastPathComponent
-                                self.log("🗑️ Deleted from backup: \(fileName)\n")
+                                self.log("🗑️ \(dstURL.path)\n")
                             }
                         } else {
                             await MainActor.run {

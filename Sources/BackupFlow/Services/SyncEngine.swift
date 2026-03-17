@@ -197,7 +197,7 @@ actor SyncEngine {
         args.append(contentsOf: [src, dst])
         
         let _keepAlive = [mainURL, secondaryURL]
-        let result = await runRsync(arguments: args, onOutput: onOutput, onProgress: onProgress)
+        let result = await runRsync(arguments: args, sourceRoot: src, onOutput: onOutput, onProgress: onProgress)
         _ = _keepAlive
         return result
     }
@@ -227,7 +227,7 @@ actor SyncEngine {
         args.append(contentsOf: [src, dst])
 
         let _keepAlive = [mainRoot, secondaryRoot, srcURL]
-        let result = await runRsync(arguments: args, onOutput: onOutput, onProgress: onProgress)
+        let result = await runRsync(arguments: args, sourceRoot: src, onOutput: onOutput, onProgress: onProgress)
         _ = _keepAlive
         return result
     }
@@ -345,6 +345,7 @@ actor SyncEngine {
 
     private func runRsync(
         arguments: [String],
+        sourceRoot: String,
         onOutput: @escaping @Sendable (String) -> Void,
         onProgress: @escaping @Sendable (Int64) -> Void
     ) async -> Bool {
@@ -395,7 +396,12 @@ actor SyncEngine {
                             }
                         }
                     } else {
-                        finalLines.append(line)
+                        if line == "Syncing changes..." {
+                            finalLines.append(line)
+                        } else {
+                            let cleanPath = line.trimmingCharacters(in: .whitespaces)
+                            finalLines.append("✓ \(sourceRoot)\(cleanPath)")
+                        }
                     }
                 }
 

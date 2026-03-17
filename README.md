@@ -6,7 +6,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-14.0+-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 14.0+">
   <img src="https://img.shields.io/badge/Swift-5.9+-F05138?style=for-the-badge&logo=swift&logoColor=white" alt="Swift 5.9+">
-  <img src="https://img.shields.io/badge/Version-1.6.8-brightgreen?style=for-the-badge" alt="Version 1.6.8">
+  <img src="https://img.shields.io/badge/Version-1.6.9-brightgreen?style=for-the-badge" alt="Version 1.6.9">
   <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License MIT">
 </p>
 
@@ -25,7 +25,7 @@ Unlike bulky cloud clients or complex terminal scripts, BackupFlow lives quietly
 
 ---
 
-## ✨ Features (v1.6.8)
+## ✨ Features (v1.6.9)
 
 ### Core
 - **📁 Custom Folders** — Hand-pick specific directories to back up with per-folder progress bars.
@@ -33,7 +33,7 @@ Unlike bulky cloud clients or complex terminal scripts, BackupFlow lives quietly
 - **🔄 True Mirroring** — Files deleted on the source are automatically removed from the backup, preventing stale data accumulation.
 - **⏱ Smart Scheduling** — Background timer supports intervals from 15 minutes to a week. Syncs silently without opening a window.
 
-### Pro Features (v1.6.8)
+### Pro Features (v1.6.9)
 - **🛡️ Advanced Deletion Guard (v1.6.x)** — Intelligent pre-sync analysis with granular per-file confirmation to avert accidental data loss.
 - **✨ Smart Deletion Review** — Per-file confirmation modal before any file is removed from the backup, complete with an "Apply to all" toggle.
 - **🔬 System-Aware Filtering** — Automatically ignores macOS metadata (`.DS_Store`, `./`, etc.) to keep logs clean and relevant.
