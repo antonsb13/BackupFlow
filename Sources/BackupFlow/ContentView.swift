@@ -225,7 +225,7 @@ struct DeletionConfirmationModal: View {
         .shadow(color: .black.opacity(0.3), radius: 20, x: 0, y: 10)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black.opacity(0.4).ignoresSafeArea())
-        .onChange(of: vm.currentDeletionIndex) { _ in
+        .onChange(of: vm.currentDeletionIndex) { oldValue, newValue in
             isProcessing = false
         }
     }
