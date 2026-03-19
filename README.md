@@ -21,101 +21,72 @@
 
 **BackupFlow** is a lightweight, background-focused macOS utility that ensures your critical folders or entire disks are perfectly mirrored to a backup location. Designed specifically for users dealing with large files (video editors, developers, audio engineers), it leverages the proven reliability of `rsync` while wrapping it in a beautiful, unobtrusive SwiftUI interface.
 
-Unlike bulky cloud clients or complex terminal scripts, BackupFlow lives quietly in your Menu Bar, running scheduled tasks or manual syncs without interrupting your workflow.
+Unlike bulky cloud clients, BackupFlow lives quietly in your Menu Bar, running scheduled tasks or manual syncs without interrupting your creative flow.
 
 ---
 
 ## ✨ Features (v1.7.0)
 
-### Core
+### Core Syncing
 - **📁 Custom Folders** — Hand-pick specific directories to back up with per-folder progress bars.
 - **💽 Full Disk Mirror** — Create a 1:1 true mirror of an entire volume (`rsync --delete`).
-- **🔄 True Mirroring** — Files deleted on the source are automatically removed from the backup, preventing stale data accumulation.
-- **⏱ Smart Scheduling** — Background timer supports intervals from 15 minutes to a week. Syncs silently without opening a window.
+- **🔄 True Mirroring** — Ensures your backup is an exact replica of the source.
+- **⏱ Smart Scheduling** — Background timer supports intervals from 15 minutes to a week. 
 
-### Pro Features (v1.7.0)
-- **Detailed Folder Logging** — Success/failure logs now explicitly include folder names for clear tracking.
-- **🛡️ Advanced Deletion Guard (v1.6.x)** — Intelligent pre-sync analysis with granular per-file confirmation to avert accidental data loss.
-- **✨ Smart Deletion Review** — Per-file confirmation modal before any file is removed from the backup, complete with an "Apply to all" toggle.
-- **🔬 System-Aware Filtering** — Automatically ignores macOS metadata (`.DS_Store`, `./`, etc.) to keep logs clean and relevant.
-- **⚙️ Legacy Compatibility** — Optimized engine that works seamlessly with macOS default rsync (v2.6.9).
-- **📊 Weighted Progress** — Accurate byte-based progress tracking for both individual folders and the global sync ring.
-- **🔍 Transparency** — Detailed deletion and sync logging in the internal Log Console.
-- **🔬 Deep Checksum Verification** — Toggle on to compare every file's SHA1 hash, not just size/date. Catches corruption that timestamps miss. Status badge updates to **"Verifying"** during this phase.
-- **🛡️ Rock-Solid Task Management** — Immediate termination of all background processes on abort or app exit (no zombie tasks).
-- **🛑 Safe Cancellation** — Intelligent sync loop that prevents cascading status changes after a manual stop.
-- **🔒 Strict Phase Separation** — Three distinct sync states:
+### Advanced Safety & Performance
+- **🛡️ Advanced Deletion Guard** — Prevents accidental data loss with an intelligent pre-sync analysis and granular per-file confirmation modals before any removal.
+- **📊 Byte-Based Progress Tracking** — Accurate 0-100% progress calculated via real-time byte stream parsing (immune to legacy rsync "100% hang" bugs).
+- **🔬 System-Aware Filtering** — Automatically excludes macOS metadata (`.DS_Store`, `.Spotlight-V100`, `.Trashes`, etc.) to keep your backup clean.
+- **🔍 Crystal Clear Logging** — The Log Console now displays **absolute paths** for every action, including folder-specific success/failure messages (e.g., `✅ Done: Davinci Resolve Media`).
+- **⚙️ Legacy Compatibility** — Optimized engine designed to work seamlessly with macOS default `rsync (v2.6.9)`.
+- **🔌 Smart Disk Detection** — Watchdog timer and `NSWorkspace` notifications automatically restore your folder list when a disk is reconnected.
 
-| Phase | Status Badge | Ring |
-|---|---|---|
-| Dry-run size calc | `Calculating...` 🔘 | Pulsing |
-| Active transfer | `Syncing` 🔵 | Progressing (0.01 – 0.99) |
-| Checksum transfer | `Verifying` 🟠 | Progressing (0.01 – 0.99) |
-| Complete | `Synced` 🟢 | 100% |
-| Cancelled | `Aborted` 🟠 | Hidden |
-
-- **🔌 Smart Disk Detection** — 5-second watchdog timer + `NSWorkspace` mount/unmount notifications. Folder list clears immediately when a disk is ejected; restores automatically on reconnect.
-
-### Architecture
-- **Menu Bar Agent** (`LSUIElement`) — No Dock icon. Lives entirely in the Menu Bar.
-- **App Sandbox** — Uses Security-Scoped Bookmarks for persistent cross-session drive access.
-- **Metadata Filtering** — Excludes `.DS_Store`, `.Spotlight-V100`, `.Trashes`, `.fseventsd`, and other macOS system files.
-- **Local-Only** — No network requests, no telemetry, no cloud sync. All data stays on your drives.
+### Security & Privacy
+- **App Sandbox** — Uses Security-Scoped Bookmarks for persistent, secure drive access.
+- **Local-Only** — Zero network requests, zero telemetry. Your data never leaves your hardware.
+- **Rock-Solid Management** — Immediate termination of all background processes on app exit (no zombie tasks).
 
 ---
 
 ## 🛠 How It Works
 
-When a sync is triggered:
+BackupFlow utilizes a **Two-Step Sync Engine** to provide the most accurate feedback:
 
-1. **Phase 1 — Calculating:** A dry-run (`rsync -n --stats`) counts bytes per folder. UI shows `Calculating...`, progress stays at 0. This output is **never** fed to the progress bars.
-2. **Phase 2 — Transferring:** The real `rsync` process starts. The `to-chk=REMAINING/TOTAL` token is parsed from `--progress` output. Progress is strictly clamped to `0.01 – 0.99` until the process exits.
-3. **Phase 3 — Completed:** Only when `rsync` exits with code 0, progress snaps to `1.0` and status becomes `Synced`.
+1. **Phase 1 — Calculation (Dry-run):** Executes `rsync -n --stats` to determine the exact total byte size of the pending transfer. The UI shows `Calculating...`.
+2. **Phase 2 — Transferring:** Starts the real `rsync` process. BackupFlow parses the raw byte output in real-time, calculating progress as: `(Current Bytes) / (Total Size)`. 
+3. **Phase 3 — Completion:** Only when `rsync` exits with a success code, the progress snaps to `1.0` and the status updates to `Synced`.
 
 **Rsync Flags Used:**
-```
--av --delete --progress --no-perms --no-owner --no-group
---exclude={.DS_Store,._*,.Spotlight-V100,.Trashes,.fseventsd,...}
-[--checksum if Deep Checksum is enabled]
-```
+`-rtv --delete --progress --no-perms --no-owner --no-group`
 
 ---
 
 ## 🖥 Installation
 
 ### Prerequisites
-- macOS 15.0 (Sequoia) or newer.
-- Xcode 15.0+ installed.
+- macOS 14.0 (Sonoma) or newer.
+- Xcode 15.0+ (for building from source).
 
 ### Steps
 ```bash
-git clone https://github.com/antonsb13/BackupFlow.git
+git clone [https://github.com/antonsb13/BackupFlow.git](https://github.com/antonsb13/BackupFlow.git)
 cd BackupFlow
 open BackupFlow.xcodeproj
-```
+In **Xcode → Project Settings → Signing & Capabilities**:
+- Select your **Apple Developer Team**.
+- Ensure **App Sandbox** is enabled with **User Selected File** set to `Read/Write`.
 
-In Xcode → Project Settings → Signing & Capabilities:
-- Select your Apple Developer Team.
-- Verify the App Sandbox is enabled with "User Selected File" → Read/Write.
-
-Then press `Cmd + R` to build and run.
+Press `Cmd + R` to build and run.
 
 ---
 
 ## 📖 Usage
 
 1. **Launch** — Click the BackupFlow icon in your Menu Bar.
-2. **Select Drives** — Click the left card for the **Main Disk** (source), right card for **Backup Disk** (destination).
-3. **Choose Mode** — **Folders** (custom dirs) or **Full Disk** (complete mirror toggle).
-4. **Optional: Deep Checksum** — Enable the checksum toggle for byte-perfect verification.
-5. **Sync** — Press the circular Sync button. Watch the per-row and global progress rings.
-6. **Schedule** — Click the Calendar icon to configure auto-sync intervals.
-
----
-
-## 🔒 Privacy
-
-BackupFlow collects **zero** user data. See [PRIVACY.md](PRIVACY.md) for the full policy.
+2. **Select Drives** — Click the left card for **Main Disk** and the right card for **Backup Disk**.
+3. **Choose Mode** — Toggle between **Folders** (custom) or **Full Disk** (mirror).
+4. **Sync** — Press the circular Sync button. Confirm any deletions if prompted by the Deletion Guard.
+5. **Monitor** — Track real-time absolute paths and weighted progress rings in the Log Console.
 
 ---
 
@@ -124,4 +95,4 @@ BackupFlow collects **zero** user data. See [PRIVACY.md](PRIVACY.md) for the ful
 MIT License — see [LICENSE](LICENSE) for details.
 
 ---
-*Built with ❤️ for macOS. v1.7.0 — March 2026.*
+*Built with ❤️ for the macOS Creative Community. v1.7.0 — March 2026.*
