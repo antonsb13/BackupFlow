@@ -342,7 +342,7 @@ final class BackupViewModel: ObservableObject {
             }
 
             setStatus(task.id, ok ? .success : .failed, date: ok ? Date() : nil)
-            log(ok ? "  ✅ Done.\n" : "  ❌ Failed.\n")
+            log(ok ? "  ✅ Done: \(task.folderName)\n" : "  ❌ Failed: \(task.folderName)\n")
             if !ok { anyFailure = true }
         }
         
@@ -509,7 +509,7 @@ final class BackupViewModel: ObservableObject {
             }
 
             setStatus(task.id, ok ? .success : .failed, date: ok ? Date() : nil)
-            log(ok ? "  ✅ Done.\n" : "  ❌ Failed.\n")
+            log(ok ? "  ✅ Done: \(task.folderName)\n" : "  ❌ Failed: \(task.folderName)\n")
             if !ok { anyFailure = true }
         }
         
