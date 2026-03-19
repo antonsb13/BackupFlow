@@ -71,7 +71,8 @@ BackupFlow utilizes a **Two-Step Sync Engine** to provide the most accurate feed
 ```bash
 git clone [https://github.com/antonsb13/BackupFlow.git](https://github.com/antonsb13/BackupFlow.git)
 cd BackupFlow
-open BackupFlow.xcodeproj
+open BackupFlow.xcodeproj 
+```
 In **Xcode → Project Settings → Signing & Capabilities**:
 - Select your **Apple Developer Team**.
 - Ensure **App Sandbox** is enabled with **User Selected File** set to `Read/Write`.
