@@ -79,17 +79,15 @@ struct ContentView: View {
                     .environmentObject(vm)
             }
         }
-        .alert(
-            "Sync Error",
-            isPresented: Binding(
-                get: { vm.alertMessage != nil },
-                set: { if !$0 { vm.alertMessage = nil } }
-            ),
-            presenting: vm.alertMessage
-        ) { _ in
-            Button("OK", role: .cancel) { }
-        } message: { msg in
-            Text(msg)
+        .onChange(of: vm.alertTitle) { _, title in
+            guard let title else { return }
+            NSAlert.showCriticalSheet(
+                title: title,
+                informativeText: vm.alertBody ?? "",
+                window: NSApplication.shared.windows.first
+            )
+            vm.alertTitle = nil
+            vm.alertBody  = nil
         }
         .frame(minWidth: 700, minHeight: 450)
     }

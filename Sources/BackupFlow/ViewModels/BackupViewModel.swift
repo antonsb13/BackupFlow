@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import UserNotifications
 
 @MainActor
 enum SyncState: Equatable {
@@ -15,10 +16,20 @@ final class BackupViewModel: ObservableObject {
     // MARK: - Published State
 
     @Published var mainDriveURL: URL? {
-        didSet { guard !isRestoring else { return }; handleDriveAvailabilityChange() }
+        didSet {
+            guard !isRestoring else { return }
+            SyncHistoryManager.shared.clear()
+            resetTaskStates()
+            handleDriveAvailabilityChange()
+        }
     }
     @Published var secondaryDriveURL: URL? {
-        didSet { guard !isRestoring else { return }; handleDriveAvailabilityChange() }
+        didSet {
+            guard !isRestoring else { return }
+            SyncHistoryManager.shared.clear()
+            resetTaskStates()
+            handleDriveAvailabilityChange()
+        }
     }
     @Published var syncEntireDrive: Bool = false
     @Published var tasks: [BackupTask] = []
@@ -30,6 +41,8 @@ final class BackupViewModel: ObservableObject {
     @Published var showAbortConfirm: Bool = false
     @Published var isMuted: Bool = false
     @Published var alertMessage: String? = nil
+    @Published var alertTitle: String? = nil
+    @Published var alertBody: String? = nil
     @Published var useChecksum: Bool = false
     @Published var isSyncCancelled: Bool = false
     
@@ -85,6 +98,7 @@ final class BackupViewModel: ObservableObject {
         setupScheduler()            // start background sync timer if schedule was configured
         setupVolumeMonitor()        // listen for disk eject/unmount events
         startDiskWatchdog()         // periodic FileManager check for physical ejections
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
     // MARK: - Computed
@@ -152,13 +166,28 @@ final class BackupViewModel: ObservableObject {
             ? String(folderPath.dropFirst(mainPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             : url.lastPathComponent
 
-        let task = BackupTask(
+        var task = BackupTask(
             folderName:   url.lastPathComponent,
             relativePath: relative,
             bookmarkData: BookmarkManager.createBookmark(for: url)
         )
+        task.status = .calculating  // Show "Calculating..." in the row immediately
         tasks.append(task)
         saveTasks()
+
+        // v1.8.0 — Async size calculation so UI stays responsive
+        let taskID  = task.id
+        let taskURL = url
+        Task {
+            let scopeStarted = taskURL.startAccessingSecurityScopedResource()
+            let size = computeSize(of: taskURL)
+            if scopeStarted { taskURL.stopAccessingSecurityScopedResource() }
+
+            guard let idx = tasks.firstIndex(where: { $0.id == taskID }) else { return }
+            tasks[idx].sizeBytes = size         // 0 is valid (empty folder)
+            tasks[idx].status    = .idle
+            saveTasks()
+        }
     }
 
     func removeSelectedTasks() {
@@ -256,6 +285,25 @@ final class BackupViewModel: ObservableObject {
         queueTotalBytes += rootSweepSize
         
         self.tasks = snapshot
+
+        // v1.7.6 — Pre-sync free space guard (Full Disk path)
+        if let attrs = try? FileManager.default.attributesOfFileSystem(forPath: sURL.path),
+           let freeSize = (attrs[.systemFreeSize] as? NSNumber)?.int64Value {
+            let required = queueTotalBytes + (1024 * 1024 * 500)
+            if freeSize < required {
+                let diskName = sURL.lastPathComponent
+                let reqGB    = String(format: "%.2f", Double(required) / 1_073_741_824.0)
+                let availGB  = String(format: "%.2f", Double(freeSize) / 1_073_741_824.0)
+                let logMsg   = "❌ Error: Insufficient space on \(diskName). Required: \(reqGB) GB, Available: \(availGB) GB."
+                log("\(logMsg)\n")
+                alertTitle   = "Insufficient Backup Space on '\(diskName)':"
+                alertBody    = "Required: \(reqGB) GB\nAvailable: \(availGB) GB\n\nPlease free up space or select a larger backup drive."
+                sendNotification(title: "⚠️ BackupFlow: Space Error", message: logMsg)
+                abortSync()
+                return
+            }
+        }
+
         globalProgress = 0.0 // Strict 0 at start of transfer phase
         syncState = .transferring
 
@@ -412,6 +460,25 @@ final class BackupViewModel: ObservableObject {
         if isSyncCancelled { return }
         
         self.tasks = snapshot
+
+        // v1.7.6 — Pre-sync free space guard (Selected Folders path)
+        if let attrs = try? FileManager.default.attributesOfFileSystem(forPath: sURL.path),
+           let freeSize = (attrs[.systemFreeSize] as? NSNumber)?.int64Value {
+            let required = queueTotalBytes + (1024 * 1024 * 500)
+            if freeSize < required {
+                let diskName = sURL.lastPathComponent
+                let reqGB    = String(format: "%.2f", Double(required) / 1_073_741_824.0)
+                let availGB  = String(format: "%.2f", Double(freeSize) / 1_073_741_824.0)
+                let logMsg   = "❌ Error: Insufficient space on \(diskName). Required: \(reqGB) GB, Available: \(availGB) GB."
+                log("\(logMsg)\n")
+                alertTitle   = "Insufficient Backup Space on '\(diskName)':"
+                alertBody    = "Required: \(reqGB) GB\nAvailable: \(availGB) GB\n\nPlease free up space or select a larger backup drive."
+                sendNotification(title: "⚠️ BackupFlow: Space Error", message: logMsg)
+                abortSync()
+                return
+            }
+        }
+
         globalProgress = 0.0  // Strict 0 at start of transfer phase
         syncState = .transferring
         
@@ -619,13 +686,23 @@ final class BackupViewModel: ObservableObject {
                     task.isMissingOnBackup = isMissing
                     task.sizeBytes = size
                     
-                    // Recover persistent 'Synced' status from history
+                    // 1. Default state
+                    task.status = .idle
+                    task.progress = 0.0
+
+                    // 2. Recover persistent 'Synced' status from history
                     let absPath = main.appendingPathComponent(task.relativePath).path
                     if SyncHistoryManager.shared.date(for: absPath) != nil {
                         task.status = .success
                         task.progress = 1.0
                     }
-                    
+
+                    // 3. Presence check — final priority, always overrides history (v1.7.6)
+                    if task.isMissingOnBackup {
+                        task.status = .idle
+                        task.progress = 0.0
+                    }
+
                     collected.append(task)
                 }
 
@@ -654,6 +731,29 @@ final class BackupViewModel: ObservableObject {
             }
         }
         return total
+    }
+
+    // MARK: - Notifications (v1.7.6)
+
+    private func sendNotification(title: String, message: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body  = message
+        content.sound = .default
+        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    // MARK: - State Reset (v1.7.6)
+
+    private func resetTaskStates() {
+        for i in 0..<tasks.count {
+            tasks[i].status       = .idle
+            tasks[i].progress     = 0.0
+            tasks[i].lastSyncDate = nil
+        }
+        tasks = tasks           // force @Published emission
+        objectWillChange.send()
     }
 
     // MARK: - Sound

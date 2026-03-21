@@ -6,7 +6,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-14.0+-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 14.0+">
   <img src="https://img.shields.io/badge/Swift-5.9+-F05138?style=for-the-badge&logo=swift&logoColor=white" alt="Swift 5.9+">
-  <img src="https://img.shields.io/badge/Version-1.7.0-brightgreen?style=for-the-badge" alt="Version 1.7.0">
+  <img src="https://img.shields.io/badge/Version-1.8.0-brightgreen?style=for-the-badge" alt="Version 1.8.0">
   <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License MIT">
 </p>
 
@@ -25,7 +25,13 @@ Unlike bulky cloud clients, BackupFlow lives quietly in your Menu Bar, running s
 
 ---
 
-## ✨ Features (v1.7.0)
+## ✨ Features (v1.8.0)
+
+### v1.8.0 Upgrades
+- **Smart Storage Guard** — Automatic pre-sync free space validation with native macOS alerts.
+- **Native Notifications** — System-level push notifications for critical errors and sync status.
+- **Live Folder Analytics** — Real-time size calculation when adding folders manually.
+- **Reliable UI State** — Improved state management that resets progress and status upon drive disconnection or change.
 
 ### Core Syncing
 - **📁 Custom Folders** — Hand-pick specific directories to back up with per-folder progress bars.
@@ -96,4 +102,4 @@ Press `Cmd + R` to build and run.
 MIT License — see [LICENSE](LICENSE) for details.
 
 ---
-*Built with ❤️ for the macOS Creative Community. v1.7.0 — March 2026.*
+*Built with ❤️ for the macOS Creative Community. v1.8.0 — March 2026.*

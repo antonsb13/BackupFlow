@@ -19,6 +19,7 @@
 		AA000010 /* TaskListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100010 /* TaskListView.swift */; };
 		AA000011 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA100011 /* Assets.xcassets */; };
 		AA000012 /* SyncHistoryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100014 /* SyncHistoryManager.swift */; };
+		AA000013 /* NSAlert+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100015 /* NSAlert+Extension.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -36,6 +37,7 @@
 		AA100012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AA100013 /* BackupFlow.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = BackupFlow.entitlements; path = ../../BackupFlow.entitlements; sourceTree = "<group>"; };
 		AA100014 /* SyncHistoryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncHistoryManager.swift; sourceTree = "<group>"; };
+		AA100015 /* NSAlert+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSAlert+Extension.swift"; sourceTree = "<group>"; };
 		AA200001 /* BackupFlow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BackupFlow.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -60,6 +62,7 @@
 				AA400004 /* ViewModels */,
 				AA400005 /* Views */,
 				AA400006 /* Resources */,
+				AA400007 /* Extensions */,
 				AA100012 /* Info.plist */,
 				AA100013 /* BackupFlow.entitlements */,
 			);
@@ -109,6 +112,14 @@
 				AA100011 /* Assets.xcassets */,
 			);
 			path = Resources;
+			sourceTree = "<group>";
+		};
+		AA400007 /* Extensions */ = {
+			isa = PBXGroup;
+			children = (
+				AA100015 /* NSAlert+Extension.swift */,
+			);
+			path = Extensions;
 			sourceTree = "<group>";
 		};
 		AA500000 = {
@@ -207,6 +218,7 @@
 				AA000009 /* ScheduleSettingsView.swift in Sources */,
 				AA000010 /* TaskListView.swift in Sources */,
 				AA000012 /* SyncHistoryManager.swift in Sources */,
+				AA000013 /* NSAlert+Extension.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -244,7 +256,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 1.7.0;
+				MARKETING_VERSION = 1.8.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.backupflow.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -284,7 +296,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 1.7.0;
+				MARKETING_VERSION = 1.8.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.backupflow.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;

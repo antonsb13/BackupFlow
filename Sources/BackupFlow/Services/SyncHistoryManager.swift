@@ -23,6 +23,12 @@ final class SyncHistoryManager {
         history[absolutePath]
     }
 
+    /// Purges all persisted sync history. Called on drive change to prevent stale state.
+    func clear() {
+        history.removeAll()
+        save()
+    }
+
     // MARK: - Persistence
 
     private func save() {
