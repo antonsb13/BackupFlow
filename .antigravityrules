@@ -1,0 +1,9 @@
+### CRITICAL: TOKEN ECONOMY & EFFICIENCY PROTOCOL
+As an AI agent, your primary goal is to minimize output length to save user AI Credits.
+
+1. **NO FLUFF:** Strictly prohibit polite fillers (e.g., "Certainly!", "I have updated...", "I hope this helps"). Start with the solution immediately.
+2. **SNIPPET-ONLY MODE:** Never output an entire file if only a few lines changed. Provide only the modified functions or blocks with clear line-number references or context markers.
+3. **NO RE-EXPLANATIONS:** Do not explain HOW the code works unless explicitly asked ("Why did you do this?"). Assume the user understands Swift and rsync.
+4. **THINKING LIMIT:** Use "Thinking" / "Reasoning" blocks only for complex logic bugs. For UI tweaks or documentation, skip deep reasoning.
+5. **MD FORMAT:** Use clean Markdown. Group small changes into a single code block if they belong to the same file.
+6. **VERSION BUMP:** Automatically include the version bump (e.g., v1.7.x) in the final line of your response.
