@@ -31,6 +31,7 @@ struct DriveHeaderView: View {
                 // Mode Switcher
                 ModeSwitcher(
                     syncEntireDrive: $vm.syncEntireDrive,
+                    isDisabled: vm.isSyncing,
                     onChange: {
                         vm.saveTasks()
                         vm.refreshFullDiskTasks()
@@ -58,17 +59,18 @@ struct DriveHeaderView: View {
 
 private struct ModeSwitcher: View {
     @Binding var syncEntireDrive: Bool
+    let isDisabled: Bool
     let onChange: () -> Void
 
     var body: some View {
         HStack(spacing: 4) {
-            ModeButton(title: "Folders",   isSelected: !syncEntireDrive) {
-                guard syncEntireDrive else { return }
+            ModeButton(title: "Folders",   isSelected: !syncEntireDrive, isDisabled: isDisabled) {
+                guard !isDisabled, syncEntireDrive else { return }
                 syncEntireDrive = false
                 onChange()
             }
-            ModeButton(title: "Full Disk", isSelected:  syncEntireDrive) {
-                guard !syncEntireDrive else { return }
+            ModeButton(title: "Full Disk", isSelected:  syncEntireDrive, isDisabled: isDisabled) {
+                guard !isDisabled, !syncEntireDrive else { return }
                 syncEntireDrive = true
                 onChange()
             }
@@ -78,12 +80,15 @@ private struct ModeSwitcher: View {
             Capsule().fill(Color(nsColor: .controlBackgroundColor))
         )
         .frame(width: 218)
+        .opacity(isDisabled ? 0.5 : 1.0)
+        .help(isDisabled ? "Can't switch sync mode while a sync is running" : "")
     }
 }
 
 private struct ModeButton: View {
     let title: String
     let isSelected: Bool
+    let isDisabled: Bool
     let action: () -> Void
 
     @State private var isHovered = false
@@ -103,7 +108,7 @@ private struct ModeButton: View {
             )
             .animation(.easeInOut(duration: 0.15), value: isSelected)
             .animation(.easeInOut(duration: 0.1), value: isHovered)
-            .onHover { isHovered = $0 }
+            .onHover { isHovered = isDisabled ? false : $0 }
             .onTapGesture { action() }
             .contentShape(Capsule())
     }
