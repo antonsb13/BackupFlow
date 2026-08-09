@@ -135,6 +135,13 @@ final class BackupViewModel: ObservableObject {
 
     func selectMainDrive() {
         guard let url = pickVolume(message: "Select the Main Disk") else { return }
+        if isSameVolume(url, secondaryDriveURL) {
+            let msg = "This is the same disk already selected as the Backup disk. Choose a different physical disk."
+            log("🛑 \(msg)\n")
+            alertTitle = "Same Disk Selected"
+            alertBody  = msg
+            return
+        }
         if let data = BookmarkManager.createBookmark(for: url) {
             UserDefaults.standard.set(data, forKey: Keys.mainBookmark)
         }
@@ -144,6 +151,13 @@ final class BackupViewModel: ObservableObject {
 
     func selectSecondaryDrive() {
         guard let url = pickVolume(message: "Select the Backup Disk") else { return }
+        if isSameVolume(url, mainDriveURL) {
+            let msg = "This is the same disk already selected as the Main disk. Choose a different physical disk."
+            log("🛑 \(msg)\n")
+            alertTitle = "Same Disk Selected"
+            alertBody  = msg
+            return
+        }
         if let data = BookmarkManager.createBookmark(for: url) {
             UserDefaults.standard.set(data, forKey: Keys.secondaryBookmark)
         }
@@ -152,9 +166,23 @@ final class BackupViewModel: ObservableObject {
     }
 
     /// The persistent volume UUID for a mounted volume URL, used to detect when a different
-    /// physical disk has been mounted at a previously-used `/Volumes/<name>` path.
+    /// physical disk has been mounted at a previously-used `/Volumes/<name>` path. Reading this
+    /// resource value under App Sandbox requires an active security-scope grant, so this opens
+    /// (and releases) one itself rather than relying on a caller to have one open already.
     private func volumeUUID(for url: URL) -> String? {
-        (try? url.resourceValues(forKeys: [.volumeUUIDStringKey]))?.volumeUUIDString
+        let didStart = url.startAccessingSecurityScopedResource()
+        defer { if didStart { url.stopAccessingSecurityScopedResource() } }
+        return (try? url.resourceValues(forKeys: [.volumeUUIDStringKey]))?.volumeUUIDString
+    }
+
+    /// True if `a` and `b` refer to the same physical volume (by UUID, falling back to a
+    /// standardized path comparison if a UUID can't be read for either one).
+    private func isSameVolume(_ a: URL, _ b: URL?) -> Bool {
+        guard let b else { return false }
+        if let uuidA = volumeUUID(for: a), let uuidB = volumeUUID(for: b) {
+            return uuidA == uuidB
+        }
+        return a.standardizedFileURL.path == b.standardizedFileURL.path
     }
 
     /// Confirms `url` is still the same physical volume that was originally selected for
@@ -246,9 +274,7 @@ final class BackupViewModel: ObservableObject {
             return
         }
 
-        let sameVolume = mainURL.path == secondaryURL.path
-            || (volumeUUID(for: mainURL) != nil && volumeUUID(for: mainURL) == volumeUUID(for: secondaryURL))
-        if sameVolume {
+        if isSameVolume(mainURL, secondaryURL) {
             let msg = "Main and Backup disks are the same physical volume. Select two different disks — syncing a disk into itself would mirror it with --delete."
             log("🛑 \(msg)\n")
             alertTitle = "Same Disk Selected"
