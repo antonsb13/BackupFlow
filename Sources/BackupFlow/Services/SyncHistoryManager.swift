@@ -2,6 +2,9 @@ import Foundation
 
 /// Thread-safe singleton that persists folder sync dates keyed by absolute path.
 /// This allows "Last Sync" dates to survive mode switches (Folders ↔ Full Disk).
+/// Only ever accessed from the @MainActor BackupViewModel; annotated accordingly to
+/// satisfy Swift 6 strict concurrency checking (SwiftPM builds with tools-version 6).
+@MainActor
 final class SyncHistoryManager {
 
     static let shared = SyncHistoryManager()

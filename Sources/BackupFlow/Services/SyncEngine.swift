@@ -1,5 +1,19 @@
 import Foundation
 
+/// Outcome of an rsync invocation, distinguishing a clean run from one that
+/// completed but reported per-file problems (rsync exit code 23 — "partial
+/// transfer due to error", e.g. permission denied or a file vanishing mid-run).
+/// Exit code 23 used to be treated as a plain success, silently masking failed files.
+enum SyncOutcome: Equatable, Sendable {
+    case success
+    case warnings
+    case failure
+
+    /// True for outcomes where the destination should be considered up to date
+    /// (rsync ran to completion, even if some individual files had problems).
+    var didComplete: Bool { self != .failure }
+}
+
 /// Executes rsync operations via `Process()` and streams stdout/stderr output.
 actor SyncEngine {
 
@@ -17,13 +31,16 @@ actor SyncEngine {
     ///                     (prevents stale macOS metadata accumulating)
     /// --exclude='.DS_Store'  = skip macOS directory metadata files
     /// --exclude='._*'        = skip AppleDouble resource-fork files
-    ///                          These cannot be unlinked via rsync inside the app sandbox.
+    /// -E / --extended-attributes = preserve Finder tags, quarantine flags, and other
+    ///                     xattrs/resource forks natively instead of losing them
     /// --no-perms = don't attempt to sync Unix permissions (avoids EPERM on FAT/exFAT)
     /// --no-owner, --no-group = skip owner/group sync (requires elevated privileges)
     /// --progress = stream per-file transfer progress (we parse to-chk=X/Y for global progress)
     private static let baseFlags: [String] = [
         "-av",
         "--delete",
+        "--delete-excluded",
+        "--extended-attributes",
         "--exclude=.DS_Store",
         "--exclude=._*",
         "--exclude=.Spotlight-V100",
@@ -39,6 +56,44 @@ actor SyncEngine {
         "--no-group",
         "--progress"
     ]
+
+    /// Maps an rsync process exit code to a `SyncOutcome`. Pure/testable.
+    static func outcome(forExitCode code: Int32) -> SyncOutcome {
+        switch code {
+        case 0: return .success
+        case 23: return .warnings
+        default: return .failure
+        }
+    }
+
+    /// Parses the `Total transferred file size:` line out of `rsync --stats` output. Pure/testable.
+    static func parseTotalTransferredBytes(from statsOutput: String) -> Int64 {
+        for line in statsOutput.components(separatedBy: "\n") {
+            if line.hasPrefix("Total transferred file size:") {
+                let digits = line.filter { $0.isNumber }
+                if let size = Int64(digits) { return size }
+            }
+        }
+        return 0
+    }
+
+    /// Parses relative paths out of `*deleting` lines from `rsync -n -i` output. Pure/testable.
+    static func parseDeletionPaths(from itemizedOutput: String) -> [String] {
+        var deletions: [String] = []
+        for line in itemizedOutput.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.contains("deleting") {
+                let comps = trimmed.components(separatedBy: "deleting")
+                if let last = comps.last {
+                    let path = last.trimmingCharacters(in: CharacterSet(charactersIn: " \t*"))
+                    if !path.isEmpty && !path.contains("*") && !path.hasPrefix("./") && path != "." {
+                        deletions.append(path)
+                    }
+                }
+            }
+        }
+        return deletions
+    }
 
     // MARK: - Public API
 
@@ -90,18 +145,7 @@ actor SyncEngine {
                     continuation.resume(returning: 0)
                     return
                 }
-                
-                var total: Int64 = 0
-                for line in text.components(separatedBy: "\n") {
-                    if line.hasPrefix("Total transferred file size:") {
-                        let digits = line.filter { $0.isNumber }
-                        if let size = Int64(digits) {
-                            total = size
-                            break
-                        }
-                    }
-                }
-                continuation.resume(returning: total)
+                continuation.resume(returning: Self.parseTotalTransferredBytes(from: text))
             }
             
             do { try process.run() } catch { continuation.resume(returning: 0) }
@@ -161,22 +205,7 @@ actor SyncEngine {
                     continuation.resume(returning: [])
                     return
                 }
-                
-                var deletions: [String] = []
-                for line in text.components(separatedBy: "\n") {
-                    let trimmed = line.trimmingCharacters(in: .whitespaces)
-                    if trimmed.contains("deleting") {
-                        let comps = trimmed.components(separatedBy: "deleting")
-                        if let last = comps.last {
-                            let path = last.trimmingCharacters(in: CharacterSet(charactersIn: " \t*"))
-                            if !path.isEmpty && !path.contains("*") && !path.hasPrefix("./") && path != "." {
-                                deletions.append(path)
-                            }
-                        }
-                    }
-                }
-                
-                continuation.resume(returning: deletions)
+                continuation.resume(returning: Self.parseDeletionPaths(from: text))
             }
             
             do { try process.run() } catch { continuation.resume(returning: []) }
@@ -189,7 +218,7 @@ actor SyncEngine {
         useChecksum: Bool,
         onOutput: @escaping @Sendable (String) -> Void,
         onProgress: @escaping @Sendable (Int64) -> Void = { _ in }
-    ) async -> Bool {
+    ) async -> SyncOutcome {
         let src = ensureTrailingSlash(mainURL.path)
         let dst = ensureTrailingSlash(secondaryURL.path)
         var args = Self.baseFlags
@@ -210,15 +239,19 @@ actor SyncEngine {
         useChecksum: Bool,
         onOutput: @escaping @Sendable (String) -> Void,
         onProgress: @escaping @Sendable (Int64) -> Void = { _ in }
-    ) async -> Bool {
+    ) async -> SyncOutcome {
         let srcURL = mainRoot.appendingPathComponent(relativePath)
         let dstURL = secondaryRoot.appendingPathComponent(relativePath)
 
-        try? FileManager.default.createDirectory(
-            at: dstURL,
-            withIntermediateDirectories: true,
-            attributes: nil
-        )
+        do {
+            try FileManager.default.createDirectory(
+                at: dstURL,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+        } catch {
+            onOutput("⚠ Could not create destination folder \(dstURL.path): \(error.localizedDescription)\n")
+        }
 
         let src = ensureTrailingSlash(srcURL.path)
         let dst = ensureTrailingSlash(dstURL.path)
@@ -258,14 +291,19 @@ actor SyncEngine {
     }
 
     /// Safely deletes specific absolute paths. Used for partial deletion approvals before an abort.
-    func deleteExactFiles(absolutePaths: [String]) async {
+    /// Returns a description of any deletions that failed (other than "file already gone").
+    @discardableResult
+    func deleteExactFiles(absolutePaths: [String]) async -> [String] {
+        var failures: [String] = []
         for path in absolutePaths {
             do {
                 try FileManager.default.removeItem(atPath: path)
             } catch let error as NSError {
                 if error.code == NSFileNoSuchFileError { continue }
+                failures.append("\(path): \(error.localizedDescription)")
             }
         }
+        return failures
     }
 
     // MARK: - Private
@@ -348,7 +386,7 @@ actor SyncEngine {
         sourceRoot: String,
         onOutput: @escaping @Sendable (String) -> Void,
         onProgress: @escaping @Sendable (Int64) -> Void
-    ) async -> Bool {
+    ) async -> SyncOutcome {
         await withCheckedContinuation { continuation in
             let process = Process()
             let outPipe = Pipe()
@@ -423,8 +461,11 @@ actor SyncEngine {
                 outPipe.fileHandleForReading.readabilityHandler = nil
                 errPipe.fileHandleForReading.readabilityHandler = nil
                 Task { await self.removeProcess(p) }
-                let status = p.terminationStatus
-                continuation.resume(returning: status == 0 || status == 23)
+                let outcome = Self.outcome(forExitCode: p.terminationStatus)
+                if outcome == .warnings {
+                    onOutput("⚠ rsync finished with warnings (exit 23) — some files may not have transferred. Check the errors above.\n")
+                }
+                continuation.resume(returning: outcome)
             }
 
             do {
@@ -432,7 +473,7 @@ actor SyncEngine {
             } catch {
                 onOutput("❌ rsync launch failed: \(error.localizedDescription)\n")
                 self.removeProcess(process)
-                continuation.resume(returning: false)
+                continuation.resume(returning: .failure)
             }
         }
     }

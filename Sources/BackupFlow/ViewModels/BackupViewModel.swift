@@ -77,6 +77,8 @@ final class BackupViewModel: ObservableObject {
     private enum Keys {
         static let mainBookmark      = "bf.mainBookmark"
         static let secondaryBookmark = "bf.secondaryBookmark"
+        static let mainVolumeUUID      = "bf.mainVolumeUUID"
+        static let secondaryVolumeUUID = "bf.secondaryVolumeUUID"
         static let syncMode          = "bf.syncEntireDrive"
         static let tasks             = "bf.tasks"
         static let isMuted           = "bf.isMuted"
@@ -136,6 +138,7 @@ final class BackupViewModel: ObservableObject {
         if let data = BookmarkManager.createBookmark(for: url) {
             UserDefaults.standard.set(data, forKey: Keys.mainBookmark)
         }
+        UserDefaults.standard.set(volumeUUID(for: url), forKey: Keys.mainVolumeUUID)
         mainDriveURL = url  // triggers didSet → handleDriveAvailabilityChange
     }
 
@@ -144,7 +147,26 @@ final class BackupViewModel: ObservableObject {
         if let data = BookmarkManager.createBookmark(for: url) {
             UserDefaults.standard.set(data, forKey: Keys.secondaryBookmark)
         }
+        UserDefaults.standard.set(volumeUUID(for: url), forKey: Keys.secondaryVolumeUUID)
         secondaryDriveURL = url  // triggers didSet → handleDriveAvailabilityChange
+    }
+
+    /// The persistent volume UUID for a mounted volume URL, used to detect when a different
+    /// physical disk has been mounted at a previously-used `/Volumes/<name>` path.
+    private func volumeUUID(for url: URL) -> String? {
+        (try? url.resourceValues(forKeys: [.volumeUUIDStringKey]))?.volumeUUIDString
+    }
+
+    /// Confirms `url` is still the same physical volume that was originally selected for
+    /// `storedUUIDKey`. If no baseline UUID was recorded yet (e.g. upgrading from an older
+    /// version), this records one now and passes. Returns false only on an explicit mismatch.
+    private func verifyVolumeIdentity(url: URL, storedUUIDKey: String) -> Bool {
+        guard let stored = UserDefaults.standard.string(forKey: storedUUIDKey) else {
+            UserDefaults.standard.set(volumeUUID(for: url), forKey: storedUUIDKey)
+            return true
+        }
+        guard let current = volumeUUID(for: url) else { return true }
+        return current == stored
     }
 
     // MARK: - Task Management
@@ -155,7 +177,9 @@ final class BackupViewModel: ObservableObject {
         }
         guard let url = pickFolder(message: "Select a folder to back up", startingAt: mainURL) else { return }
 
-        if url.path == mainURL.path {
+        let normalizedURL  = url.standardizedFileURL.resolvingSymlinksInPath()
+        let normalizedMain = mainURL.standardizedFileURL.resolvingSymlinksInPath()
+        if normalizedURL.path == normalizedMain.path {
             log("⚠️ Cannot add the entire disk root in Custom Folders mode. Use Full Disk Sync instead.\n")
             return
         }
@@ -222,6 +246,17 @@ final class BackupViewModel: ObservableObject {
             return
         }
 
+        let sameVolume = mainURL.path == secondaryURL.path
+            || (volumeUUID(for: mainURL) != nil && volumeUUID(for: mainURL) == volumeUUID(for: secondaryURL))
+        if sameVolume {
+            let msg = "Main and Backup disks are the same physical volume. Select two different disks — syncing a disk into itself would mirror it with --delete."
+            log("🛑 \(msg)\n")
+            alertTitle = "Same Disk Selected"
+            alertBody  = msg
+            playSound(.failure)
+            return
+        }
+
         syncState = .calculating
         log("═══ Backup Flow  \(Date().formatted()) ═══\n")
 
@@ -243,18 +278,19 @@ final class BackupViewModel: ObservableObject {
         log("▶ Full drive sync: \(mURL.path) → \(sURL.path)\n")
 
         var anyFailure = false
+        var anyWarnings = false
         var snapshot = tasks
-        
+
         let mStarted = mURL.startAccessingSecurityScopedResource()
         let sStarted = sURL.startAccessingSecurityScopedResource()
         defer {
             if sStarted { sURL.stopAccessingSecurityScopedResource() }
             if mStarted { mURL.stopAccessingSecurityScopedResource() }
         }
-        
+
         isSyncCancelled = false
         applyToAllDeletions = false
-        
+
         // 1. Calculate Target Bytes strictly before processing — mark rows as .calculating
         log("Calculating transfer sizes...\n")
         var queueTotalBytes: Int64 = 0
@@ -287,22 +323,29 @@ final class BackupViewModel: ObservableObject {
         self.tasks = snapshot
 
         // v1.7.6 — Pre-sync free space guard (Full Disk path)
-        if let attrs = try? FileManager.default.attributesOfFileSystem(forPath: sURL.path),
-           let freeSize = (attrs[.systemFreeSize] as? NSNumber)?.int64Value {
-            let required = queueTotalBytes + (1024 * 1024 * 500)
-            if freeSize < required {
-                let diskName = sURL.lastPathComponent
-                let reqGB    = String(format: "%.2f", Double(required) / 1_073_741_824.0)
-                let availGB  = String(format: "%.2f", Double(freeSize) / 1_073_741_824.0)
-                let logMsg   = "❌ Error: Insufficient space on \(diskName). Required: \(reqGB) GB, Available: \(availGB) GB."
-                log("\(logMsg)\n")
-                alertTitle   = "Insufficient Backup Space on '\(diskName)':"
-                alertBody    = "Required: \(reqGB) GB\nAvailable: \(availGB) GB\n\nPlease free up space or select a larger backup drive."
-                sendNotification(title: "⚠️ BackupFlow: Space Error", message: logMsg)
-                abortSync()
-                return
+        do {
+            let attrs = try FileManager.default.attributesOfFileSystem(forPath: sURL.path)
+            if let freeSize = (attrs[.systemFreeSize] as? NSNumber)?.int64Value {
+                let required = queueTotalBytes + (1024 * 1024 * 500)
+                if freeSize < required {
+                    let diskName = sURL.lastPathComponent
+                    let reqGB    = String(format: "%.2f", Double(required) / 1_073_741_824.0)
+                    let availGB  = String(format: "%.2f", Double(freeSize) / 1_073_741_824.0)
+                    let logMsg   = "❌ Error: Insufficient space on \(diskName). Required: \(reqGB) GB, Available: \(availGB) GB."
+                    log("\(logMsg)\n")
+                    alertTitle   = "Insufficient Backup Space on '\(diskName)':"
+                    alertBody    = "Required: \(reqGB) GB\nAvailable: \(availGB) GB\n\nPlease free up space or select a larger backup drive."
+                    sendNotification(title: "⚠️ BackupFlow: Space Error", message: logMsg)
+                    abortSync()
+                    return
+                }
             }
+        } catch {
+            log("⚠️ Could not verify free space on backup disk: \(error.localizedDescription). Proceeding without the storage guard.\n")
         }
+
+        let totalGB = String(format: "%.2f", Double(queueTotalBytes) / 1_073_741_824.0)
+        log("📦 Estimated transfer: \(totalGB) GB across \(snapshot.count) folder(s).\n")
 
         globalProgress = 0.0 // Strict 0 at start of transfer phase
         syncState = .transferring
@@ -339,7 +382,12 @@ final class BackupViewModel: ObservableObject {
                                     self.log("🗑️ \(p)\n")
                                 }
                             }
-                            await engine.deleteExactFiles(absolutePaths: approvedPaths)
+                            let deletionFailures = await engine.deleteExactFiles(absolutePaths: approvedPaths)
+                            if !deletionFailures.isEmpty {
+                                await MainActor.run {
+                                    for f in deletionFailures { self.log("⚠️ Failed to delete: \(f)\n") }
+                                }
+                            }
                             abortSync()
                             return
                         } else if !applyToAllDeletions {
@@ -362,11 +410,11 @@ final class BackupViewModel: ObservableObject {
                 }
                 if isSyncCancelled { return }
             }
-            
+
             currentTaskIndex = i + 1
             setStatus(task.id, activeStatus)  // Row transitions to Syncing / Verifying
 
-            let ok = await engine.syncFolder(
+            let outcome = await engine.syncFolder(
                 relativePath: task.relativePath,
                 mainRoot:     mURL,
                 secondaryRoot: sURL,
@@ -383,24 +431,27 @@ final class BackupViewModel: ObservableObject {
 
             if isSyncCancelled { return }
 
-            if ok {
+            if outcome.didComplete {
                 let absPath = mURL.appendingPathComponent(task.relativePath).path
                 SyncHistoryManager.shared.record(absolutePath: absPath)
                 completedTasks += 1
             }
 
-            setStatus(task.id, ok ? .success : .failed, date: ok ? Date() : nil)
-            log(ok ? "  ✅ Done: \(task.folderName)\n" : "  ❌ Failed: \(task.folderName)\n")
-            if !ok { anyFailure = true }
+            setStatus(task.id, outcome.didComplete ? .success : .failed, date: outcome.didComplete ? Date() : nil)
+            switch outcome {
+            case .success:  log("  ✅ Done: \(task.folderName)\n")
+            case .warnings: log("  ⚠️ Done with warnings: \(task.folderName)\n"); anyWarnings = true
+            case .failure:  log("  ❌ Failed: \(task.folderName)\n"); anyFailure = true
+            }
         }
-        
+
         if isSyncCancelled { return }
 
         // 3. Final sweep — counts as the last task
         currentTaskIndex = totalTasksCount
         log("\n▶ [\(totalTasksCount)/\(totalTasksCount)] Sweeping root files...\n")
-        
-        let sweepOk = await engine.syncEntireDrive(from: mURL, to: sURL, useChecksum: checksum) { [weak self] text in
+
+        let sweepOutcome = await engine.syncEntireDrive(from: mURL, to: sURL, useChecksum: checksum) { [weak self] text in
             Task { @MainActor [weak self] in self?.log(text) }
         } onProgress: { [weak self, completedBytes = queueTotalBytes - rootSweepSize, totalBytes = queueTotalBytes] bytesTransferred in
             Task { @MainActor [weak self] in
@@ -409,17 +460,31 @@ final class BackupViewModel: ObservableObject {
                 self.globalProgress = min(0.99, max(0.0, overallTransferred / Double(max(1, totalBytes))))
             }
         }
-        
-        if sweepOk { SyncHistoryManager.shared.record(absolutePath: mURL.path) }
-        
+
+        if sweepOutcome.didComplete { SyncHistoryManager.shared.record(absolutePath: mURL.path) }
+        if sweepOutcome == .warnings { anyWarnings = true }
+        if sweepOutcome == .failure { anyFailure = true }
+
         globalProgress = 1.0
         syncState = .completed
-        log(sweepOk && !anyFailure ? "\n✅ Full drive sync complete.\n" : "\n❌ Sync finished with warnings.\n")
-        playSound(sweepOk && !anyFailure ? .success : .failure)
+
+        if anyFailure {
+            log("\n❌ Sync finished with errors.\n")
+            playSound(.failure)
+        } else if anyWarnings {
+            log("\n⚠️ Sync finished with warnings — some files may not have transferred correctly. Check the log above.\n")
+            alertTitle = "Sync Completed with Warnings"
+            alertBody  = "rsync reported partial-transfer errors for one or more files (permission denied, a file vanishing mid-sync, etc). Check the log console for details."
+            playSound(.failure)
+        } else {
+            log("\n✅ Full drive sync complete.\n")
+            playSound(.success)
+        }
     }
 
     private func syncSelectedFolders(main mURL: URL, secondary sURL: URL, checksum: Bool) async {
         var anyFailure = false
+        var anyWarnings = false
         var snapshot = tasks
 
         totalTasksCount = snapshot.count
@@ -462,22 +527,29 @@ final class BackupViewModel: ObservableObject {
         self.tasks = snapshot
 
         // v1.7.6 — Pre-sync free space guard (Selected Folders path)
-        if let attrs = try? FileManager.default.attributesOfFileSystem(forPath: sURL.path),
-           let freeSize = (attrs[.systemFreeSize] as? NSNumber)?.int64Value {
-            let required = queueTotalBytes + (1024 * 1024 * 500)
-            if freeSize < required {
-                let diskName = sURL.lastPathComponent
-                let reqGB    = String(format: "%.2f", Double(required) / 1_073_741_824.0)
-                let availGB  = String(format: "%.2f", Double(freeSize) / 1_073_741_824.0)
-                let logMsg   = "❌ Error: Insufficient space on \(diskName). Required: \(reqGB) GB, Available: \(availGB) GB."
-                log("\(logMsg)\n")
-                alertTitle   = "Insufficient Backup Space on '\(diskName)':"
-                alertBody    = "Required: \(reqGB) GB\nAvailable: \(availGB) GB\n\nPlease free up space or select a larger backup drive."
-                sendNotification(title: "⚠️ BackupFlow: Space Error", message: logMsg)
-                abortSync()
-                return
+        do {
+            let attrs = try FileManager.default.attributesOfFileSystem(forPath: sURL.path)
+            if let freeSize = (attrs[.systemFreeSize] as? NSNumber)?.int64Value {
+                let required = queueTotalBytes + (1024 * 1024 * 500)
+                if freeSize < required {
+                    let diskName = sURL.lastPathComponent
+                    let reqGB    = String(format: "%.2f", Double(required) / 1_073_741_824.0)
+                    let availGB  = String(format: "%.2f", Double(freeSize) / 1_073_741_824.0)
+                    let logMsg   = "❌ Error: Insufficient space on \(diskName). Required: \(reqGB) GB, Available: \(availGB) GB."
+                    log("\(logMsg)\n")
+                    alertTitle   = "Insufficient Backup Space on '\(diskName)':"
+                    alertBody    = "Required: \(reqGB) GB\nAvailable: \(availGB) GB\n\nPlease free up space or select a larger backup drive."
+                    sendNotification(title: "⚠️ BackupFlow: Space Error", message: logMsg)
+                    abortSync()
+                    return
+                }
             }
+        } catch {
+            log("⚠️ Could not verify free space on backup disk: \(error.localizedDescription). Proceeding without the storage guard.\n")
         }
+
+        let totalGB = String(format: "%.2f", Double(queueTotalBytes) / 1_073_741_824.0)
+        log("📦 Estimated transfer: \(totalGB) GB across \(snapshot.count) folder(s).\n")
 
         globalProgress = 0.0  // Strict 0 at start of transfer phase
         syncState = .transferring
@@ -512,7 +584,12 @@ final class BackupViewModel: ObservableObject {
                                     self.log("🗑️ \(p)\n")
                                 }
                             }
-                            await engine.deleteExactFiles(absolutePaths: approvedPaths)
+                            let deletionFailures = await engine.deleteExactFiles(absolutePaths: approvedPaths)
+                            if !deletionFailures.isEmpty {
+                                await MainActor.run {
+                                    for f in deletionFailures { self.log("⚠️ Failed to delete: \(f)\n") }
+                                }
+                            }
                             abortSync()
                             return
                         } else if !applyToAllDeletions {
@@ -535,7 +612,7 @@ final class BackupViewModel: ObservableObject {
                 }
                 if isSyncCancelled { return }
             }
-            
+
             currentTaskIndex = i + 1
             setStatus(task.id, activeStatus)  // Row transitions to Syncing / Verifying
             log("\n▶ [\(i + 1)/\(snapshot.count)] '\(task.folderName)' (\(task.relativePath))\n")
@@ -548,7 +625,7 @@ final class BackupViewModel: ObservableObject {
                 if started { folderScopeURL = resolved }
             }
 
-            let ok = await engine.syncFolder(
+            let outcome = await engine.syncFolder(
                 relativePath: task.relativePath,
                 mainRoot:     mURL,
                 secondaryRoot: sURL,
@@ -569,22 +646,35 @@ final class BackupViewModel: ObservableObject {
             if isSyncCancelled { return }
 
             // Record sync date by absolute path (cross-mode persistence)
-            if ok {
+            if outcome.didComplete {
                 let absPath = mURL.appendingPathComponent(task.relativePath).path
                 SyncHistoryManager.shared.record(absolutePath: absPath)
                 completedTasks += 1
             }
 
-            setStatus(task.id, ok ? .success : .failed, date: ok ? Date() : nil)
-            log(ok ? "  ✅ Done: \(task.folderName)\n" : "  ❌ Failed: \(task.folderName)\n")
-            if !ok { anyFailure = true }
+            setStatus(task.id, outcome.didComplete ? .success : .failed, date: outcome.didComplete ? Date() : nil)
+            switch outcome {
+            case .success:  log("  ✅ Done: \(task.folderName)\n")
+            case .warnings: log("  ⚠️ Done with warnings: \(task.folderName)\n"); anyWarnings = true
+            case .failure:  log("  ❌ Failed: \(task.folderName)\n"); anyFailure = true
+            }
         }
-        
+
         if isSyncCancelled { return }
 
         globalProgress = 1.0
         saveTasks()
-        playSound(anyFailure ? .failure : .success)
+
+        if anyFailure {
+            playSound(.failure)
+        } else if anyWarnings {
+            log("\n⚠️ Sync finished with warnings — some files may not have transferred correctly. Check the log above.\n")
+            alertTitle = "Sync Completed with Warnings"
+            alertBody  = "rsync reported partial-transfer errors for one or more files (permission denied, a file vanishing mid-sync, etc). Check the log console for details."
+            playSound(.failure)
+        } else {
+            playSound(.success)
+        }
     }
 
     func abortSync() {
@@ -639,7 +729,7 @@ final class BackupViewModel: ObservableObject {
             await self.engine.forceStopAll()
             sema.signal()
         }
-        _ = sema.wait(timeout: .now() + 1.5)
+        _ = sema.wait(timeout: .now() + 3.0)
     }
 
     // MARK: - Full Disk Task Scan
@@ -775,6 +865,7 @@ final class BackupViewModel: ObservableObject {
         if logOutput.count > 100_000 {
             logOutput = String(logOutput.suffix(80_000))
         }
+        FileLogger.append(text)
     }
 
     // MARK: - Task Status & Progress
@@ -877,10 +968,22 @@ final class BackupViewModel: ObservableObject {
         syncEntireDrive = UserDefaults.standard.bool(forKey: Keys.syncMode)
 
         if let data = UserDefaults.standard.data(forKey: Keys.mainBookmark),
-           let url  = BookmarkManager.resolveBookmark(data) { mainDriveURL = url }
+           let url  = BookmarkManager.resolveBookmark(data) {
+            if verifyVolumeIdentity(url: url, storedUUIDKey: Keys.mainVolumeUUID) {
+                mainDriveURL = url
+            } else {
+                log("🛑 A different disk is now mounted where the Main disk used to be. Please re-select it.\n")
+            }
+        }
 
         if let data = UserDefaults.standard.data(forKey: Keys.secondaryBookmark),
-           let url  = BookmarkManager.resolveBookmark(data) { secondaryDriveURL = url }
+           let url  = BookmarkManager.resolveBookmark(data) {
+            if verifyVolumeIdentity(url: url, storedUUIDKey: Keys.secondaryVolumeUUID) {
+                secondaryDriveURL = url
+            } else {
+                log("🛑 A different disk is now mounted where the Backup disk used to be. Please re-select it.\n")
+            }
+        }
 
         if let data    = UserDefaults.standard.data(forKey: Keys.tasks) {
             loadTasksFromDefaults(data: data)
@@ -892,7 +995,8 @@ final class BackupViewModel: ObservableObject {
     
     // Safely loads the persistent task configuration into the active UI state
     private func loadTasksFromDefaults(data: Data) {
-        if let decoded = try? JSONDecoder().decode([BackupTask].self, from: data) {
+        do {
+            let decoded = try JSONDecoder().decode([BackupTask].self, from: data)
             tasks = decoded.map {
                 var t = $0
                 // Reset UI state that shouldn't persist across launches
@@ -913,11 +1017,16 @@ final class BackupViewModel: ObservableObject {
                 }
                 return t
             }
+        } catch {
+            log("⚠️ Failed to load saved tasks: \(error.localizedDescription)\n")
         }
     }
     func saveTasks() {
-        if let encoded = try? JSONEncoder().encode(tasks) {
+        do {
+            let encoded = try JSONEncoder().encode(tasks)
             UserDefaults.standard.set(encoded, forKey: Keys.tasks)
+        } catch {
+            log("⚠️ Failed to save tasks: \(error.localizedDescription)\n")
         }
         UserDefaults.standard.set(syncEntireDrive, forKey: Keys.syncMode)
         UserDefaults.standard.set(isMuted, forKey: Keys.isMuted)
@@ -1034,22 +1143,28 @@ final class BackupViewModel: ObservableObject {
     }
     
     /// Uses FileManager to detect physically ejected drives that may not have triggered a notification.
+    /// Runs during an active sync too — a disk vanishing mid-transfer is exactly when this matters
+    /// most, so instead of clearing state (which would be unsafe mid-sync) it aborts the sync cleanly.
     private func validateDiskConnection() {
-        guard !isSyncing else { return } // Don't abort mid-sync
-        var didChange = false
-        if let url = mainDriveURL, !FileManager.default.fileExists(atPath: url.path) {
+        let mainGone = mainDriveURL.map { !FileManager.default.fileExists(atPath: $0.path) } ?? false
+        let secondaryGone = secondaryDriveURL.map { !FileManager.default.fileExists(atPath: $0.path) } ?? false
+        guard mainGone || secondaryGone else { return }
+
+        if isSyncing {
+            log("🛑 Watchdog: disk disconnected mid-sync. Aborting.\n")
+            abortSync()
+            return
+        }
+
+        if mainGone {
             log("⚠️ Watchdog: Main disk gone. Clearing.\n")
             mainDriveURL = nil   // triggers didSet → handleDriveAvailabilityChange
-            didChange = true
         }
-        if let url = secondaryDriveURL, !FileManager.default.fileExists(atPath: url.path) {
+        if secondaryGone {
             log("⚠️ Watchdog: Backup disk gone. Clearing.\n")
             secondaryDriveURL = nil
-            didChange = true
         }
-        if didChange {
-            alertMessage = "A disk was disconnected. Please reconnect to continue."
-        }
+        alertMessage = "A disk was disconnected. Please reconnect to continue."
     }
     
     private func tryRestoreBookmarksAfterMount() {
@@ -1058,15 +1173,23 @@ final class BackupViewModel: ObservableObject {
            let data = UserDefaults.standard.data(forKey: Keys.mainBookmark),
            let url  = BookmarkManager.resolveBookmark(data),
            FileManager.default.fileExists(atPath: url.path) {
-            mainDriveURL = url
-            didRestore = true
+            if verifyVolumeIdentity(url: url, storedUUIDKey: Keys.mainVolumeUUID) {
+                mainDriveURL = url
+                didRestore = true
+            } else {
+                log("🛑 A different disk is now mounted where the Main disk used to be. Please re-select it.\n")
+            }
         }
         if secondaryDriveURL == nil,
            let data = UserDefaults.standard.data(forKey: Keys.secondaryBookmark),
            let url  = BookmarkManager.resolveBookmark(data),
            FileManager.default.fileExists(atPath: url.path) {
-            secondaryDriveURL = url
-            didRestore = true
+            if verifyVolumeIdentity(url: url, storedUUIDKey: Keys.secondaryVolumeUUID) {
+                secondaryDriveURL = url
+                didRestore = true
+            } else {
+                log("🛑 A different disk is now mounted where the Backup disk used to be. Please re-select it.\n")
+            }
         }
         if didRestore {
             log("✅ Disk reconnected. Sessions restored.\n")

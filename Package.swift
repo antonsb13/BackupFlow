@@ -13,6 +13,11 @@ let package = Package(
             resources: [
                 .process("Resources")
             ]
+        ),
+        .testTarget(
+            name: "BackupFlowTests",
+            dependencies: ["BackupFlow"],
+            path: "Tests/BackupFlowTests"
         )
     ]
 )
