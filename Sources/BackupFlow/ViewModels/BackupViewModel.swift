@@ -7,6 +7,10 @@ enum SyncState: Equatable {
     case idle
     case calculating
     case transferring
+    /// Final whole-drive sweep. Its cost is directory traversal, not bytes — rsync emits no
+    /// `--progress` output at all once the tree is already in sync, so there is nothing to
+    /// drive a percentage with. Shown as an indeterminate phase instead of a frozen ring.
+    case finalizing
     case completed
 }
 
@@ -37,7 +41,7 @@ final class BackupViewModel: ObservableObject {
     @Published var logOutput: String = ""
     @Published var isLogExpanded: Bool = false
     @Published var syncState: SyncState = .idle
-    var isSyncing: Bool { syncState == .calculating || syncState == .transferring }
+    var isSyncing: Bool { syncState == .calculating || syncState == .transferring || syncState == .finalizing }
     @Published var showAbortConfirm: Bool = false
     @Published var isMuted: Bool = false
     @Published var alertMessage: String? = nil
@@ -68,6 +72,14 @@ final class BackupViewModel: ObservableObject {
     private var scheduleTimer: Timer?
     private var diskWatchdogTimer: Timer?
     private var isRestoring = false // Prevents `didSet` from firing during `restoreState()`
+
+    /// Per-task 0…1 progress for the CURRENT sync session only, keyed by task id.
+    /// The global ring is computed from this rather than from `BackupTask.status`, because a
+    /// `.success` restored from `SyncHistoryManager` describes a *previous* sync and must not
+    /// count as work completed now. Reset at the start of every sync.
+    private var sessionFractions: [UUID: Double] = [:]
+    /// Byte weights of the tasks taking part in the current session, keyed by task id.
+    private var sessionWeights: [UUID: Int64] = [:]
 
     private enum SchKeys {
         static let enabled  = "bf.scheduleEnabled"
@@ -117,6 +129,8 @@ final class BackupViewModel: ObservableObject {
             } else {
                 return "\(actionText) (\(pct)%)"
             }
+        case .finalizing:
+            return "Finalizing..."
         case .completed:
             return "Synced"
         case .idle:
@@ -341,11 +355,12 @@ final class BackupViewModel: ObservableObject {
         }
         
         if isSyncCancelled { return }
-        
-        // Add root sweep dry run
-        let rootSweepSize = await engine.calculateTransferSize(from: mURL, to: sURL, useChecksum: checksum)
-        queueTotalBytes += rootSweepSize
-        
+
+        // NOTE: no whole-drive dry run here. It used to be added to `queueTotalBytes`, but it
+        // measures the same bytes the per-folder runs already cover, roughly doubling the
+        // estimate and skewing the ring. Dropping it also removes a full extra scan of the
+        // drive from every sync. The final sweep is reported as an indeterminate phase instead.
+
         self.tasks = snapshot
 
         // v1.7.6 — Pre-sync free space guard (Full Disk path)
@@ -373,7 +388,7 @@ final class BackupViewModel: ObservableObject {
         let totalGB = String(format: "%.2f", Double(queueTotalBytes) / 1_073_741_824.0)
         log("📦 Estimated transfer: \(totalGB) GB across \(snapshot.count) folder(s).\n")
 
-        globalProgress = 0.0 // Strict 0 at start of transfer phase
+        beginProgressSession(tasks: snapshot)
         syncState = .transferring
 
         var completedTasks = 0
@@ -447,11 +462,11 @@ final class BackupViewModel: ObservableObject {
                 useChecksum:  checksum
             ) { [weak self] text in
                 Task { @MainActor [weak self] in self?.log(text) }
-            } onProgress: { [weak self, id = task.id, targetBytes = task.targetBytes, queueTotalBytes, activeIds = snapshot.map(\.id)] bytesTransferred in
+            } onProgress: { [weak self, id = task.id, targetBytes = task.targetBytes] bytesTransferred in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     let fraction = Double(bytesTransferred) / Double(max(1, targetBytes))
-                    self.updateTaskProgressFraction(id: id, fraction: fraction, queueTotalBytes: queueTotalBytes, activeTaskIds: activeIds)
+                    self.updateTaskProgressFraction(id: id, fraction: fraction)
                 }
             }
 
@@ -463,6 +478,9 @@ final class BackupViewModel: ObservableObject {
                 completedTasks += 1
             }
 
+            // Count the folder's full weight regardless of outcome — it is no longer pending work.
+            completeTaskProgress(id: task.id)
+
             setStatus(task.id, outcome.didComplete ? .success : .failed, date: outcome.didComplete ? Date() : nil)
             switch outcome {
             case .success:  log("  ✅ Done: \(task.folderName)\n")
@@ -473,18 +491,16 @@ final class BackupViewModel: ObservableObject {
 
         if isSyncCancelled { return }
 
-        // 3. Final sweep — counts as the last task
+        // 3. Final sweep — picks up loose root-level files and root deletions. Once the folders
+        // above are in sync this transfers almost nothing, so rsync emits no --progress output
+        // at all while it walks the whole drive. There is no percentage to report: switch to an
+        // indeterminate phase rather than leaving the ring frozen at its last value.
         currentTaskIndex = totalTasksCount
+        syncState = .finalizing
         log("\n▶ [\(totalTasksCount)/\(totalTasksCount)] Sweeping root files...\n")
 
         let sweepOutcome = await engine.syncEntireDrive(from: mURL, to: sURL, useChecksum: checksum) { [weak self] text in
             Task { @MainActor [weak self] in self?.log(text) }
-        } onProgress: { [weak self, completedBytes = queueTotalBytes - rootSweepSize, totalBytes = queueTotalBytes] bytesTransferred in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                let overallTransferred = Double(completedBytes) + Double(bytesTransferred)
-                self.globalProgress = min(0.99, max(0.0, overallTransferred / Double(max(1, totalBytes))))
-            }
         }
 
         if sweepOutcome.didComplete { SyncHistoryManager.shared.record(absolutePath: mURL.path) }
@@ -577,9 +593,9 @@ final class BackupViewModel: ObservableObject {
         let totalGB = String(format: "%.2f", Double(queueTotalBytes) / 1_073_741_824.0)
         log("📦 Estimated transfer: \(totalGB) GB across \(snapshot.count) folder(s).\n")
 
-        globalProgress = 0.0  // Strict 0 at start of transfer phase
+        beginProgressSession(tasks: snapshot)
         syncState = .transferring
-        
+
         var completedTasks = 0
         let activeStatus: SyncStatus = checksum ? .verifying : .syncing
 
@@ -658,11 +674,11 @@ final class BackupViewModel: ObservableObject {
                 useChecksum:  checksum
             ) { [weak self] text in
                 Task { @MainActor [weak self] in self?.log(text) }
-            } onProgress: { [weak self, id = task.id, targetBytes = task.targetBytes, queueTotalBytes, activeIds = snapshot.map(\.id)] bytesTransferred in
+            } onProgress: { [weak self, id = task.id, targetBytes = task.targetBytes] bytesTransferred in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     let fraction = Double(bytesTransferred) / Double(max(1, targetBytes))
-                    self.updateTaskProgressFraction(id: id, fraction: fraction, queueTotalBytes: queueTotalBytes, activeTaskIds: activeIds)
+                    self.updateTaskProgressFraction(id: id, fraction: fraction)
                 }
             }
 
@@ -677,6 +693,9 @@ final class BackupViewModel: ObservableObject {
                 SyncHistoryManager.shared.record(absolutePath: absPath)
                 completedTasks += 1
             }
+
+            // Count the folder's full weight regardless of outcome — it is no longer pending work.
+            completeTaskProgress(id: task.id)
 
             setStatus(task.id, outcome.didComplete ? .success : .failed, date: outcome.didComplete ? Date() : nil)
             switch outcome {
@@ -742,6 +761,10 @@ final class BackupViewModel: ObservableObject {
             }
             
             syncState = .idle
+            // Drop the session before zeroing the ring: in-flight onProgress callbacks can still
+            // land after an abort and would otherwise recompute a non-zero progress value.
+            sessionFractions = [:]
+            sessionWeights = [:]
             globalProgress = 0.0
             log("\n🛑 Sync aborted by user.\n")
             playSound(.failure)
@@ -896,34 +919,37 @@ final class BackupViewModel: ObservableObject {
 
     // MARK: - Task Status & Progress
 
-    /// Updates task and global progress using a 0.0–1.0 file-queue fraction from `to-chk=X/Y` parser.
+    /// Begins a new progress session: only the given tasks count toward the global ring,
+    /// each weighted by its estimated transfer size. Clears any leftovers from a prior sync.
+    private func beginProgressSession(tasks activeTasks: [BackupTask]) {
+        sessionFractions = [:]
+        sessionWeights = Dictionary(uniqueKeysWithValues: activeTasks.map { ($0.id, max(1, $0.targetBytes)) })
+        globalProgress = 0.0
+    }
+
+    /// Records a task's progress for this session and recomputes the global ring.
     /// - Parameters:
     ///   - id: The task whose row progress bar to update.
-    ///   - fraction: Fraction of files processed for this specific task (0.0 – 0.99).
-    ///   - queueTotalBytes: Sum of `targetBytes` across all ACTIVE queued tasks.
-    ///   - activeTaskIds: The IDs of the tasks that are part of the current sync session.
-    private func updateTaskProgressFraction(id: UUID, fraction: Double, queueTotalBytes: Int64, activeTaskIds: [UUID]) {
-        guard let index = tasks.firstIndex(where: { $0.id == id }) else { return }
-        // Per-folder row bar: clamp strictly to 0.99 while running
-        tasks[index].progress = min(0.99, max(0.01, fraction))
-
-        // Global ring: byte-weighted sum of all completed + current fraction
-        // Only consider tasks that are part of the current active session
-        let totalBytes = max(1, queueTotalBytes)
-        var weightedDone: Double = 0
-        for t in tasks {
-            guard activeTaskIds.contains(t.id) else { continue }
-            
-            let weight = Double(max(1, t.targetBytes)) / Double(totalBytes)
-            if t.id == id {
-                weightedDone += weight * fraction
-            } else if t.status == .success || t.status == .failed {
-                weightedDone += weight * 1.0
-            } else if t.progress > 0 {
-                weightedDone += weight * t.progress
-            }
+    ///   - fraction: Fraction of this task's estimated bytes transferred so far.
+    private func updateTaskProgressFraction(id: UUID, fraction: Double) {
+        if let index = tasks.firstIndex(where: { $0.id == id }) {
+            // Per-folder row bar: clamp strictly to 0.99 while running
+            tasks[index].progress = min(0.99, max(0.01, fraction))
         }
-        globalProgress = min(0.99, max(0.0, weightedDone))
+        sessionFractions[id] = fraction
+        recomputeGlobalProgress()
+    }
+
+    /// Marks a task as fully finished for this session (counts as 100% of its weight).
+    private func completeTaskProgress(id: UUID) {
+        sessionFractions[id] = 1.0
+        recomputeGlobalProgress()
+    }
+
+    private func recomputeGlobalProgress() {
+        let value = SyncEngine.weightedProgress(fractions: sessionFractions, weights: sessionWeights)
+        // Hold just below 1.0 while work is still running; the caller sets 1.0 on completion.
+        globalProgress = min(0.99, value)
     }
 
     private func setStatus(_ id: UUID, _ status: SyncStatus, date: Date? = nil) {

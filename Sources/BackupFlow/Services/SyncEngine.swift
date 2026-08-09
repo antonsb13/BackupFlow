@@ -26,21 +26,29 @@ actor SyncEngine {
     /// Core rsync flags used for all sync operations:
     /// -a  = archive (recursive, preserve symlinks, times)
     /// -v  = verbose output
-    /// --delete          = delete files on destination not in source (true mirror)
-    /// --delete-excluded = also delete destination files excluded by --exclude rules
-    ///                     (prevents stale macOS metadata accumulating)
+    /// --delete = delete files on destination not in source (true mirror)
     /// --exclude='.DS_Store'  = skip macOS directory metadata files
     /// --exclude='._*'        = skip AppleDouble resource-fork files
-    /// -E / --extended-attributes = preserve Finder tags, quarantine flags, and other
-    ///                     xattrs/resource forks natively instead of losing them
     /// --no-perms = don't attempt to sync Unix permissions (avoids EPERM on FAT/exFAT)
     /// --no-owner, --no-group = skip owner/group sync (requires elevated privileges)
     /// --progress = stream per-file transfer progress (we parse to-chk=X/Y for global progress)
+    ///
+    /// Deliberately NOT used (both were tried and reverted — see below):
+    ///
+    /// `--extended-attributes` (-E): would preserve Finder tags/xattrs, but the sandboxed
+    /// rsync child cannot read restricted xattrs such as `com.apple.provenance`. It
+    /// synthesises an AppleDouble `._NAME` stream per object and every one fails with
+    /// `copyfile: Operation not permitted` (~1000 error pairs on a real sync). It also
+    /// achieves nothing here, since `--exclude=._*` filters those streams back out.
+    ///
+    /// `--delete-excluded`: would clean stale excluded files off the destination, but on a
+    /// full-drive sync the destination is the volume root, so rsync must descend into
+    /// `.Spotlight-V100` / `.Trashes` / `.fseventsd` to delete them. Those are unreadable
+    /// system directories, and walking them trips an assertion inside Apple's openrsync
+    /// (`flist_gen_dels`, flist.c:2973) which aborts the transfer with SIGABRT.
     private static let baseFlags: [String] = [
         "-av",
         "--delete",
-        "--delete-excluded",
-        "--extended-attributes",
         "--exclude=.DS_Store",
         "--exclude=._*",
         "--exclude=.Spotlight-V100",
@@ -75,6 +83,25 @@ actor SyncEngine {
             }
         }
         return 0
+    }
+
+    /// Byte-weighted completion across the tasks of one sync session. Pure/testable.
+    ///
+    /// `fractions` holds the 0…1 progress of tasks **touched in the current session only** —
+    /// a task absent from the map contributes nothing. This is deliberate: deriving completion
+    /// from `BackupTask.status` counted a `.success` restored from a *previous* sync as work
+    /// already done, which pinned the ring near 100% from the first callback.
+    static func weightedProgress(fractions: [UUID: Double], weights: [UUID: Int64]) -> Double {
+        let totalBytes = weights.values.reduce(0) { $0 + max(1, $1) }
+        guard totalBytes > 0 else { return 0 }
+
+        var done: Double = 0
+        for (id, rawFraction) in fractions {
+            guard let weight = weights[id] else { continue }
+            let fraction = min(1.0, max(0.0, rawFraction))
+            done += (Double(max(1, weight)) / Double(totalBytes)) * fraction
+        }
+        return min(1.0, max(0.0, done))
     }
 
     /// Parses relative paths out of `*deleting` lines from `rsync -n -i` output. Pure/testable.

@@ -146,8 +146,9 @@ private struct SyncButton: View {
                         .stroke(Color.white.opacity(0.2), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
                         .frame(width: 53, height: 53)
                     
-                    if vm.syncState == .calculating {
-                        // Pulsing indeterminate progress
+                    if vm.syncState == .calculating || vm.syncState == .finalizing {
+                        // Pulsing indeterminate progress — used for the phases that have no
+                        // measurable byte progress (size calculation and the final root sweep).
                         Circle()
                             .stroke(Color.white.opacity(isPulsing ? 0.8 : 0.3), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
                             .frame(width: 53, height: 53)
